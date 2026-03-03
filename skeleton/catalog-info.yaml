@@ -1,0 +1,78 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.component_id }}
+  description: ${{ values.description }}
+  annotations:
+    # ── GitHub ──
+    github.com/project-slug: neuberger-berman/${{ values.component_id }}
+    # ── ArgoCD ──
+    argocd/app-name: ${{ values.component_id }}
+    # ── Coder Workspace ──
+    coder.com/workspace-template: ${{ values.coder_template }}
+    coder.com/workspace-url: https://coder.nb.internal/@me/${{ values.component_id }}
+    # ── ACS (StackRox) Security ──
+    redhat.com/acs-image-scan: enabled
+    redhat.com/acs-deployment-check: enabled
+    # ── Network Observability ──
+    redhat.com/network-observability: enabled
+    # ── TechDocs ──
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - ${{ values.language }}
+    - golden-path
+    - ${{ values.system }}
+  links:
+    - title: Open in Coder
+      url: https://coder.nb.internal/@me/${{ values.component_id }}
+      icon: dashboard
+      type: ide
+    - title: ArgoCD
+      url: https://argocd.nb.internal/applications/${{ values.component_id }}
+      icon: cloud
+      type: deployment
+    - title: ACS Security
+      url: https://acs.nb.internal/main/vulnerability-management
+      icon: security
+      type: security
+    - title: Grafana Dashboard
+      url: https://grafana.nb.internal/d/${{ values.component_id }}
+      icon: dashboard
+      type: monitoring
+spec:
+  type: service
+  lifecycle: production
+  owner: ${{ values.owner }}
+  system: ${{ values.system }}
+  providesApis:
+    - ${{ values.component_id }}-api
+  dependsOn:
+    {%- if values.include_kafka %}
+    - resource:nb-kafka-platform
+    {%- endif %}
+    {%- if values.include_db %}
+    - resource:nb-${{ values.db_type }}
+    {%- endif %}
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{ values.component_id }}-api
+  description: API for ${{ values.component_id }}
+spec:
+  type: openapi
+  lifecycle: production
+  owner: ${{ values.owner }}
+  system: ${{ values.system }}
+  definition: |
+    openapi: "3.0.0"
+    info:
+      title: ${{ values.component_id }}
+      version: 0.1.0
+    paths:
+      /health:
+        get:
+          summary: Health check
+          responses:
+            '200':
+              description: OK
