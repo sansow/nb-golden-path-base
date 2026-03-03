@@ -1,0 +1,1 @@
+# nb-golden-path-base
