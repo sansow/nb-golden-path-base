@@ -5,13 +5,15 @@ metadata:
   title: NB Golden Path — Coder Workspace
   description: |
     Scaffolds a production-ready application with Coder remote workspace,
-    ArgoCD GitOps deployment, ACS security scanning, and full observability.
-    Designed for Neuberger Berman platform engineers and developers.
+    ArgoCD GitOps deployment, ACS security scanning, Network Observability,
+    and full observability. Designed for Neuberger Berman platform engineers
+    and developers.
   tags:
     - recommended
     - coder
     - gitops
     - acs
+    - network-observability
     - golden-path
   annotations:
     backstage.io/techdocs-ref: dir:.
@@ -32,6 +34,15 @@ spec:
           default: apps.cluster-cnhmj.dynamic.redhatworkshops.io
           description: OpenShift apps domain (auto-populated)
           ui:widget: hidden
+
+    # Internal image registry (auto-populated from OpenShift in-cluster registry)
+    - internal_registry:
+          title: Internal Image Registry
+          type: string
+          default: image-registry.openshift-image-registry.svc:5000
+          description: OpenShift internal image registry service endpoint (auto-populated)
+          ui:widget: hidden
+
     - title: Application Info
       required:
         - component_id
@@ -80,29 +91,48 @@ spec:
     - title: Technology Stack
       required:
         - language
-        - java_version
       properties:
         language:
           title: Language / Framework
           type: string
           enum:
             - java-springboot
+            - java-quarkus
             - python-fastapi
             - dotnet-webapi
             - nodejs-express
+            - aiml-pytorch
+            - aiml-tensorflow
           enumNames:
             - Java — Spring Boot 3.x
+            - Java — Quarkus 3.x (Native-ready)
             - Python — FastAPI
             - .NET — Web API 8.x
             - Node.js — Express
+            - AI/ML — PyTorch (GPU-ready)
+            - AI/ML — TensorFlow (GPU-ready)
           default: java-springboot
         java_version:
-          title: Java Version (if Java)
+          title: Java Version (Spring Boot / Quarkus)
           type: string
           enum:
             - '17'
             - '21'
           default: '21'
+        python_version:
+          title: Python Version
+          type: string
+          enum:
+            - '3.11'
+            - '3.12'
+          default: '3.12'
+        dotnet_version:
+          title: .NET SDK Version
+          type: string
+          enum:
+            - '8.0'
+            - '9.0'
+          default: '8.0'
         include_kafka:
           title: Include Kafka client libraries
           type: boolean
@@ -171,6 +201,7 @@ spec:
             - '4'
             - '8'
             - '16'
+            - '32'
           default: '8'
         workspace_disk:
           title: Persistent Storage (GB)
@@ -179,6 +210,7 @@ spec:
             - '10'
             - '20'
             - '50'
+            - '100'
           default: '20'
         dotfiles_repo:
           title: Dotfiles Repository (optional)
@@ -203,6 +235,7 @@ spec:
               - github.com
             allowedOwners:
               - neuberger-berman
+              - sansow
         target_namespace:
           title: Target Namespace
           type: string
@@ -223,6 +256,49 @@ spec:
           uniqueItems: true
           ui:widget: checkboxes
 
+    # ──────────────────────────────────────────────
+    # STEP 5 — Security & Observability
+    # ──────────────────────────────────────────────
+    - title: Security & Observability
+      properties:
+        enable_acs_scan:
+          title: Enable ACS Image Scanning
+          type: boolean
+          default: true
+          description: >
+            Run Red Hat Advanced Cluster Security image scan and policy check
+            against NB-enforced policies before deployment
+        acs_fail_on_policy_violation:
+          title: Fail build on ACS policy violation
+          type: boolean
+          default: true
+          description: >
+            Block deployment if ACS detects a CRITICAL or HIGH severity policy
+            violation (recommended for production workloads)
+        enable_network_observability:
+          title: Enable Network Observability
+          type: boolean
+          default: true
+          description: >
+            Deploy eBPF-based network flow collection via the Network Observability
+            Operator and expose flows in the OpenShift console and Loki
+        netobserv_flow_sampling:
+          title: Network Flow Sampling Rate
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 100
+          description: >
+            Percentage of network flows to sample (lower = less overhead,
+            higher = more visibility). Recommended: 50 for staging, 25 for prod.
+        enable_network_policy:
+          title: Scaffold deny-by-default NetworkPolicy
+          type: boolean
+          default: true
+          description: >
+            Generate a baseline deny-all ingress/egress NetworkPolicy with
+            explicit allow rules for this service
+
   # ──────────────────────────────────────────────
   # ACTIONS — What happens after the wizard
   # ──────────────────────────────────────────────
@@ -241,6 +317,8 @@ spec:
           system: ${{ parameters.system }}
           language: ${{ parameters.language }}
           java_version: ${{ parameters.java_version }}
+          python_version: ${{ parameters.python_version }}
+          dotnet_version: ${{ parameters.dotnet_version }}
           include_kafka: ${{ parameters.include_kafka }}
           include_db: ${{ parameters.include_db }}
           db_type: ${{ parameters.db_type }}
@@ -251,6 +329,10 @@ spec:
           dotfiles_repo: ${{ parameters.dotfiles_repo }}
           target_namespace: ${{ parameters.target_namespace }}
           deploy_environments: ${{ parameters.deploy_environments }}
+          enable_acs_scan: ${{ parameters.enable_acs_scan }}
+          enable_network_observability: ${{ parameters.enable_network_observability }}
+          enable_network_policy: ${{ parameters.enable_network_policy }}
+          internal_registry: ${{ parameters.internal_registry }}
 
     # 2 — Publish to GitHub
     - id: publish
@@ -272,7 +354,7 @@ spec:
         repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
         catalogInfoPath: /catalog-info.yaml
 
-    # 4 — Create Coder workspace
+    # 4 — Create Coder workspace (using OpenShift internal registry images)
     - id: coder-workspace
       name: Create Coder Workspace
       action: coder:sdk:create
@@ -286,13 +368,111 @@ spec:
           repo_url: ${{ steps.publish.output.remoteUrl }}
           dotfiles_url: ${{ parameters.dotfiles_repo }}
           namespace: ${{ parameters.target_namespace }}-dev
+          # ── OpenShift internal registry workspace images ──────────────────
+          # Images live in the `nb-devtools` ImageStream namespace so they are
+          # resolvable by any pod running inside the cluster via the internal
+          # service endpoint (image-registry.openshift-image-registry.svc:5000).
           image: >-
-            ${{ parameters.language == 'java-springboot' and 'registry.nb.internal/devtools/java-workspace:21' or
-                parameters.language == 'python-fastapi' and 'registry.nb.internal/devtools/python-workspace:3.12' or
-                parameters.language == 'dotnet-webapi' and 'registry.nb.internal/devtools/dotnet-workspace:8.0' or
-                'registry.nb.internal/devtools/node-workspace:20' }}
+            ${{ parameters.language == 'java-springboot'    and parameters.internal_registry + '/nb-devtools/java-workspace:ubi9-jdk' + parameters.java_version or
+                parameters.language == 'java-quarkus'       and parameters.internal_registry + '/nb-devtools/quarkus-workspace:ubi9-jdk' + parameters.java_version or
+                parameters.language == 'python-fastapi'     and parameters.internal_registry + '/nb-devtools/python-workspace:ubi9-py' + parameters.python_version or
+                parameters.language == 'dotnet-webapi'      and parameters.internal_registry + '/nb-devtools/dotnet-workspace:ubi9-' + parameters.dotnet_version or
+                parameters.language == 'nodejs-express'     and parameters.internal_registry + '/nb-devtools/node-workspace:ubi9-node20' or
+                parameters.language == 'aiml-pytorch'       and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-pytorch-cuda12' or
+                parameters.language == 'aiml-tensorflow'    and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-tensorflow-cuda12' or
+                parameters.internal_registry + '/nb-devtools/universal-workspace:ubi9-latest' }}
 
-    # 5 — Create ArgoCD Application
+    # 5 — ACS Image Scan & Policy Check
+    #     Runs roxctl against the image that will be deployed.
+    #     The action calls the ACS Central API using a pre-configured
+    #     integration secret (acs-central-token) stored in the RHDH namespace.
+    - id: acs-image-scan
+      name: ACS — Image Scan & Policy Check
+      if: ${{ parameters.enable_acs_scan }}
+      action: nb:acs:scan
+      input:
+        # Image ref built from the internal registry (same logic as above)
+        image: >-
+          ${{ parameters.internal_registry }}/${{ parameters.target_namespace }}-dev/${{ parameters.component_id }}:latest
+        # ACS Central connection — references RHDH secret nb-acs-central-token
+        acsInstanceName: nb-acs-central
+        # NB-specific policy set enforced at build time
+        policyCategories:
+          - Vulnerability Management
+          - DevOps Best Practices
+          - Security Best Practices
+        failOnPolicyViolation: ${{ parameters.acs_fail_on_policy_violation }}
+        # Severity threshold — only fail on CRITICAL or HIGH
+        failBuildSeverity: HIGH
+        # Output SARIF report so it appears in GitHub Security tab
+        outputFormat: sarif
+        sarifOutputPath: acs-scan-results.sarif
+
+    # 6 — Upload ACS SARIF report as GitHub Code Scanning alert
+    - id: acs-upload-sarif
+      name: ACS — Upload SARIF to GitHub
+      if: ${{ parameters.enable_acs_scan }}
+      action: github:publish:file
+      input:
+        repoUrl: ${{ parameters.repo_url }}
+        sourcePath: acs-scan-results.sarif
+        targetPath: .github/acs-scan-results.sarif
+        commitMessage: "ci: add ACS scan SARIF report [skip ci]"
+
+    # 7 — Network Observability — annotate namespace & create FlowCollector CR
+    #     Applies the nb-netobserv label to the target namespace so the
+    #     Network Observability Operator picks up flows automatically.
+    #     Also creates a namespace-scoped FlowMetrics CR for Prometheus scraping.
+    - id: network-observability-setup
+      name: Network Observability — Label Namespace & Create FlowMetrics CR
+      if: ${{ parameters.enable_network_observability }}
+      action: nb:openshift:apply
+      input:
+        # Label the namespace for Network Observability Operator selection
+        resources:
+          - apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: ${{ parameters.target_namespace }}-dev
+              labels:
+                network.openshift.io/policy-group: nb-netobserv
+                nb.io/network-observability: enabled
+                app.kubernetes.io/managed-by: rhdh-golden-path
+
+          # FlowMetrics CR — exposes per-workload Prometheus metrics derived
+          # from eBPF-collected flows visible in the OpenShift Network Observability
+          # console plugin and queryable via Loki (LokiStack: nb-lokistack)
+          - apiVersion: flows.netobserv.io/v1alpha1
+            kind: FlowMetric
+            metadata:
+              name: ${{ parameters.component_id }}-flow-metrics
+              namespace: ${{ parameters.target_namespace }}-dev
+            spec:
+              metricName: nb_workload_flows_total
+              type: Counter
+              filters:
+                - field: SrcK8S_Namespace
+                  value: ${{ parameters.target_namespace }}-dev
+                  matchType: Equal
+              labels:
+                - SrcK8S_OwnerName
+                - DstK8S_OwnerName
+                - Proto
+                - Flags
+
+    # 8 — Scaffold deny-by-default NetworkPolicy
+    - id: network-policy-scaffold
+      name: Network Observability — Scaffold NetworkPolicy
+      if: ${{ parameters.enable_network_policy }}
+      action: fetch:template
+      input:
+        url: ./skeleton/network-policy
+        targetPath: chart/templates/network-policy
+        values:
+          component_id: ${{ parameters.component_id }}
+          target_namespace: ${{ parameters.target_namespace }}
+
+    # 9 — Create ArgoCD Application
     - id: argocd-create
       name: Create ArgoCD Application
       action: argocd:create-resources
@@ -321,3 +501,11 @@ spec:
       - title: ArgoCD Application
         url: https://argocd.${{ parameters.cluster_domain }}/applications/${{ parameters.component_id }}
         icon: cloud
+      - title: ACS Vulnerability Dashboard
+        url: https://acs-central.${{ parameters.cluster_domain }}/main/vulnerability-management/images
+        icon: security
+        if: ${{ parameters.enable_acs_scan }}
+      - title: Network Observability — Flow Topology
+        url: https://console.${{ parameters.cluster_domain }}/netflow-traffic?namespace=${{ parameters.target_namespace }}-dev
+        icon: network
+        if: ${{ parameters.enable_network_observability }}
