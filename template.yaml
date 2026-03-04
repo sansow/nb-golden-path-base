@@ -19,30 +19,36 @@ metadata:
     backstage.io/techdocs-ref: dir:.
   links:
     - title: Coder Dashboard
-      url: https://coder-coder.${{ parameters.cluster_domain }}
+      url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io
       icon: dashboard
 spec:
   owner: platform-engineering
   type: service
-  # ──────────────────────────────────────────────
-  # STEP 1 — Project Details
-  # ──────────────────────────────────────────────
   parameters:
-    - cluster_domain:
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # BUG FIX #1: Hidden/auto-populated params MUST be inside a step object
+    # with `title:` + `properties:` — bare key objects are invalid and cause
+    # Backstage to fail parsing the entire template (results in 404 / blank page)
+    # ──────────────────────────────────────────────────────────────────────────
+    - title: Platform Defaults
+      properties:
+        cluster_domain:
           title: Cluster Domain
           type: string
           default: apps.cluster-cnhmj.dynamic.redhatworkshops.io
           description: OpenShift apps domain (auto-populated)
           ui:widget: hidden
-
-    # Internal image registry (auto-populated from OpenShift in-cluster registry)
-    - internal_registry:
+        internal_registry:
           title: Internal Image Registry
           type: string
           default: image-registry.openshift-image-registry.svc:5000
           description: OpenShift internal image registry service endpoint (auto-populated)
           ui:widget: hidden
 
+    # ──────────────────────────────────────────────
+    # STEP 1 — Application Info
+    # ──────────────────────────────────────────────
     - title: Application Info
       required:
         - component_id
@@ -300,10 +306,9 @@ spec:
             explicit allow rules for this service
 
   # ──────────────────────────────────────────────
-  # ACTIONS — What happens after the wizard
+  # ACTIONS
   # ──────────────────────────────────────────────
   steps:
-    # 1 — Scaffold the repo from skeleton/
     - id: fetch-base
       name: Fetch Base Template
       action: fetch:template
@@ -334,7 +339,6 @@ spec:
           enable_network_policy: ${{ parameters.enable_network_policy }}
           internal_registry: ${{ parameters.internal_registry }}
 
-    # 2 — Publish to GitHub
     - id: publish
       name: Publish to GitHub
       action: publish:github
@@ -346,7 +350,6 @@ spec:
         protectDefaultBranch: true
         requireCodeOwnerReviews: true
 
-    # 3 — Register in Backstage catalog
     - id: register
       name: Register in RHDH Catalog
       action: catalog:register
@@ -354,7 +357,6 @@ spec:
         repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
         catalogInfoPath: /catalog-info.yaml
 
-    # 4 — Create Coder workspace (using OpenShift internal registry images)
     - id: coder-workspace
       name: Create Coder Workspace
       action: coder:sdk:create
@@ -368,10 +370,6 @@ spec:
           repo_url: ${{ steps.publish.output.remoteUrl }}
           dotfiles_url: ${{ parameters.dotfiles_repo }}
           namespace: ${{ parameters.target_namespace }}-dev
-          # ── OpenShift internal registry workspace images ──────────────────
-          # Images live in the `nb-devtools` ImageStream namespace so they are
-          # resolvable by any pod running inside the cluster via the internal
-          # service endpoint (image-registry.openshift-image-registry.svc:5000).
           image: >-
             ${{ parameters.language == 'java-springboot'    and parameters.internal_registry + '/nb-devtools/java-workspace:ubi9-jdk' + parameters.java_version or
                 parameters.language == 'java-quarkus'       and parameters.internal_registry + '/nb-devtools/quarkus-workspace:ubi9-jdk' + parameters.java_version or
@@ -382,33 +380,23 @@ spec:
                 parameters.language == 'aiml-tensorflow'    and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-tensorflow-cuda12' or
                 parameters.internal_registry + '/nb-devtools/universal-workspace:ubi9-latest' }}
 
-    # 5 — ACS Image Scan & Policy Check
-    #     Runs roxctl against the image that will be deployed.
-    #     The action calls the ACS Central API using a pre-configured
-    #     integration secret (acs-central-token) stored in the RHDH namespace.
     - id: acs-image-scan
       name: ACS — Image Scan & Policy Check
       if: ${{ parameters.enable_acs_scan }}
       action: nb:acs:scan
       input:
-        # Image ref built from the internal registry (same logic as above)
         image: >-
           ${{ parameters.internal_registry }}/${{ parameters.target_namespace }}-dev/${{ parameters.component_id }}:latest
-        # ACS Central connection — references RHDH secret nb-acs-central-token
         acsInstanceName: nb-acs-central
-        # NB-specific policy set enforced at build time
         policyCategories:
           - Vulnerability Management
           - DevOps Best Practices
           - Security Best Practices
         failOnPolicyViolation: ${{ parameters.acs_fail_on_policy_violation }}
-        # Severity threshold — only fail on CRITICAL or HIGH
         failBuildSeverity: HIGH
-        # Output SARIF report so it appears in GitHub Security tab
         outputFormat: sarif
         sarifOutputPath: acs-scan-results.sarif
 
-    # 6 — Upload ACS SARIF report as GitHub Code Scanning alert
     - id: acs-upload-sarif
       name: ACS — Upload SARIF to GitHub
       if: ${{ parameters.enable_acs_scan }}
@@ -419,16 +407,11 @@ spec:
         targetPath: .github/acs-scan-results.sarif
         commitMessage: "ci: add ACS scan SARIF report [skip ci]"
 
-    # 7 — Network Observability — annotate namespace & create FlowCollector CR
-    #     Applies the nb-netobserv label to the target namespace so the
-    #     Network Observability Operator picks up flows automatically.
-    #     Also creates a namespace-scoped FlowMetrics CR for Prometheus scraping.
     - id: network-observability-setup
       name: Network Observability — Label Namespace & Create FlowMetrics CR
       if: ${{ parameters.enable_network_observability }}
       action: nb:openshift:apply
       input:
-        # Label the namespace for Network Observability Operator selection
         resources:
           - apiVersion: v1
             kind: Namespace
@@ -438,10 +421,6 @@ spec:
                 network.openshift.io/policy-group: nb-netobserv
                 nb.io/network-observability: enabled
                 app.kubernetes.io/managed-by: rhdh-golden-path
-
-          # FlowMetrics CR — exposes per-workload Prometheus metrics derived
-          # from eBPF-collected flows visible in the OpenShift Network Observability
-          # console plugin and queryable via Loki (LokiStack: nb-lokistack)
           - apiVersion: flows.netobserv.io/v1alpha1
             kind: FlowMetric
             metadata:
@@ -460,7 +439,6 @@ spec:
                 - Proto
                 - Flags
 
-    # 8 — Scaffold deny-by-default NetworkPolicy
     - id: network-policy-scaffold
       name: Network Observability — Scaffold NetworkPolicy
       if: ${{ parameters.enable_network_policy }}
@@ -472,7 +450,6 @@ spec:
           component_id: ${{ parameters.component_id }}
           target_namespace: ${{ parameters.target_namespace }}
 
-    # 9 — Create ArgoCD Application
     - id: argocd-create
       name: Create ArgoCD Application
       action: argocd:create-resources
@@ -485,7 +462,7 @@ spec:
         path: chart/
 
   # ──────────────────────────────────────────────
-  # OUTPUT — Links shown after scaffolding
+  # OUTPUT
   # ──────────────────────────────────────────────
   output:
     links:
@@ -501,11 +478,12 @@ spec:
       - title: ArgoCD Application
         url: https://argocd.${{ parameters.cluster_domain }}/applications/${{ parameters.component_id }}
         icon: cloud
+      # BUG FIX #2: output.links does NOT support `if:` conditionals — removed.
+      # These links are always shown; they simply won't do anything if the
+      # features were disabled during scaffolding.
       - title: ACS Vulnerability Dashboard
         url: https://acs-central.${{ parameters.cluster_domain }}/main/vulnerability-management/images
         icon: security
-        if: ${{ parameters.enable_acs_scan }}
       - title: Network Observability — Flow Topology
         url: https://console.${{ parameters.cluster_domain }}/netflow-traffic?namespace=${{ parameters.target_namespace }}-dev
         icon: network
-        if: ${{ parameters.enable_network_observability }}
