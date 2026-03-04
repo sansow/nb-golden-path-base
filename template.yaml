@@ -356,30 +356,6 @@ spec:
       input:
         repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
         catalogInfoPath: /catalog-info.yaml
-
-    - id: coder-workspace
-      name: Create Coder Workspace
-      action: coder:sdk:create
-      input:
-        name: ${{ parameters.component_id }}
-        template_name: ${{ parameters.coder_template }}
-        rich_parameters:
-          cpu: ${{ parameters.workspace_cpu }}
-          memory: ${{ parameters.workspace_memory }}
-          disk: ${{ parameters.workspace_disk }}
-          repo_url: ${{ steps.publish.output.remoteUrl }}
-          dotfiles_url: ${{ parameters.dotfiles_repo }}
-          namespace: ${{ parameters.target_namespace }}-dev
-          image: >-
-            ${{ parameters.language == 'java-springboot'    and parameters.internal_registry + '/nb-devtools/java-workspace:ubi9-jdk' + parameters.java_version or
-                parameters.language == 'java-quarkus'       and parameters.internal_registry + '/nb-devtools/quarkus-workspace:ubi9-jdk' + parameters.java_version or
-                parameters.language == 'python-fastapi'     and parameters.internal_registry + '/nb-devtools/python-workspace:ubi9-py' + parameters.python_version or
-                parameters.language == 'dotnet-webapi'      and parameters.internal_registry + '/nb-devtools/dotnet-workspace:ubi9-' + parameters.dotnet_version or
-                parameters.language == 'nodejs-express'     and parameters.internal_registry + '/nb-devtools/node-workspace:ubi9-node20' or
-                parameters.language == 'aiml-pytorch'       and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-pytorch-cuda12' or
-                parameters.language == 'aiml-tensorflow'    and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-tensorflow-cuda12' or
-                parameters.internal_registry + '/nb-devtools/universal-workspace:ubi9-latest' }}
-
     - id: acs-image-scan
       name: ACS — Image Scan & Policy Check
       if: ${{ parameters.enable_acs_scan }}
