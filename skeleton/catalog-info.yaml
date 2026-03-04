@@ -46,13 +46,15 @@ spec:
   system: ${{ values.system }}
   providesApis:
     - ${{ values.component_id }}-api
+  {%- if values.include_kafka or values.include_db %}
   dependsOn:
     {%- if values.include_kafka %}
     - resource:nb-kafka-platform
     {%- endif %}
     {%- if values.include_db %}
-    - resource:nb-${{ values.db_type }}
+    - resource:default/${{ values.component_id }}-db
     {%- endif %}
+  {%- endif %}
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API
