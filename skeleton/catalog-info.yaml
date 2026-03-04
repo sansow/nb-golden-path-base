@@ -5,12 +5,12 @@ metadata:
   description: ${{ values.description }}
   annotations:
     # ── GitHub ──
-    github.com/project-slug: neuberger-berman/${{ values.component_id }}
+    github.com/project-slug: sansow/${{ values.component_id }}
     # ── ArgoCD ──
     argocd/app-name: ${{ values.component_id }}
     # ── Coder Workspace ──
     coder.com/workspace-template: ${{ values.coder_template }}
-    coder.com/workspace-url: https://coder.nb.internal/@me/${{ values.component_id }}
+    coder.com/workspace-url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/@me/${{ values.component_id }}
     # ── ACS (StackRox) Security ──
     redhat.com/acs-image-scan: enabled
     redhat.com/acs-deployment-check: enabled
@@ -24,19 +24,19 @@ metadata:
     - ${{ values.system }}
   links:
     - title: Open in Coder
-      url: https://coder.nb.internal/@me/${{ values.component_id }}
+      url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/@me/${{ values.component_id }}
       icon: dashboard
       type: ide
     - title: ArgoCD
-      url: https://argocd.nb.internal/applications/${{ values.component_id }}
+      url: https://argocd.apps.cluster-cnhmj.dynamic.redhatworkshops.io/applications/${{ values.component_id }}
       icon: cloud
       type: deployment
     - title: ACS Security
-      url: https://acs.nb.internal/main/vulnerability-management
+      url: https://acs.apps.cluster-cnhmj.dynamic.redhatworkshops.io/main/vulnerability-management
       icon: security
       type: security
     - title: Grafana Dashboard
-      url: https://grafana.nb.internal/d/${{ values.component_id }}
+      url: https://grafana.apps.cluster-cnhmj.dynamic.redhatworkshops.io/d/${{ values.component_id }}
       icon: dashboard
       type: monitoring
 spec:

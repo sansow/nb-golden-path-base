@@ -6,7 +6,7 @@
 replicaCount: 2
 
 image:
-  repository: registry.nb.internal/${{ values.system }}/${{ values.component_id }}
+  repository: registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/${{ values.system }}/${{ values.component_id }}
   tag: latest
   pullPolicy: IfNotPresent
 

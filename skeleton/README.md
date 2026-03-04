@@ -14,7 +14,7 @@
 
 Your workspace is pre-configured:
 ```
-https://coder.nb.internal/@me/${{ values.component_id }}
+https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/@me/${{ values.component_id }}
 ```
 
 ## Whats Included (Golden Path)

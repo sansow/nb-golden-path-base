@@ -68,22 +68,22 @@ data "coder_parameter" "image" {
   name    = "image"
   display_name = "Workspace Image"
   type    = "string"
-  default = "registry.nb.internal/devtools/java-workspace:21"
+  default = "registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/java-workspace:21"
   option {
     name  = "Java 21"
-    value = "registry.nb.internal/devtools/java-workspace:21"
+    value = "registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/java-workspace:21"
   }
   option {
     name  = "Python 3.12"
-    value = "registry.nb.internal/devtools/python-workspace:3.12"
+    value = "registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/python-workspace:3.12"
   }
   option {
     name  = ".NET 8.0"
-    value = "registry.nb.internal/devtools/dotnet-workspace:8.0"
+    value = "registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/dotnet-workspace:8.0"
   }
   option {
     name  = "Node.js 20"
-    value = "registry.nb.internal/devtools/node-workspace:20"
+    value = "registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/node-workspace:20"
   }
 }
 
@@ -255,7 +255,7 @@ resource "kubernetes_persistent_volume_claim" "home" {
   }
   spec {
     access_modes       = ["ReadWriteOnce"]
-    storage_class_name = "ocs-storagecluster-ceph-rbd"
+    storage_class_name = "gp3-csi"
     resources {
       requests = {
         storage = "${data.coder_parameter.disk.value}Gi"

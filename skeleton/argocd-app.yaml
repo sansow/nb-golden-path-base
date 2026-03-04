@@ -11,7 +11,7 @@ metadata:
 spec:
   project: ${{ values.system }}
   source:
-    repoURL: https://github.com/neuberger-berman/${{ values.component_id }}.git
+    repoURL: https://github.com/sansow/${{ values.component_id }}.git
     targetRevision: main
     path: chart/
     helm:
