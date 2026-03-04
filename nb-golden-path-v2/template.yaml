@@ -1,0 +1,317 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nb-golden-path-base
+  title: NB Golden Path — Coder Workspace
+  description: |
+    Scaffolds a production-ready application with Coder remote workspace,
+    ArgoCD GitOps deployment, ACS security scanning, and full observability.
+    Designed for Neuberger Berman platform engineers and developers.
+  tags:
+    - recommended
+    - coder
+    - gitops
+    - acs
+    - golden-path
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+  links:
+    - title: Coder Dashboard
+      url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io
+      icon: dashboard
+spec:
+  owner: platform-engineering
+  type: service
+  # ──────────────────────────────────────────────
+  # STEP 1 — Project Details
+  # ──────────────────────────────────────────────
+  parameters:
+    - title: Application Info
+      required:
+        - component_id
+        - description
+        - owner
+        - system
+      properties:
+        component_id:
+          title: Component Name
+          type: string
+          description: Unique name for this component (lowercase, hyphens only)
+          pattern: '^[a-z][a-z0-9-]*$'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: What does this service do?
+        owner:
+          title: Owner Team
+          type: string
+          description: Team that owns this component
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: Group
+        system:
+          title: System
+          type: string
+          description: Which NB system does this belong to?
+          enum:
+            - trading-platform
+            - risk-engine
+            - compliance-suite
+            - data-platform
+            - operations
+          enumNames:
+            - Trading Platform
+            - Risk Engine
+            - Compliance Suite
+            - Data Platform
+            - Operations
+
+    # ──────────────────────────────────────────────
+    # STEP 2 — Tech Stack
+    # ──────────────────────────────────────────────
+    - title: Technology Stack
+      required:
+        - language
+        - java_version
+      properties:
+        language:
+          title: Language / Framework
+          type: string
+          enum:
+            - java-springboot
+            - python-fastapi
+            - dotnet-webapi
+            - nodejs-express
+          enumNames:
+            - Java — Spring Boot 3.x
+            - Python — FastAPI
+            - .NET — Web API 8.x
+            - Node.js — Express
+          default: java-springboot
+        java_version:
+          title: Java Version (if Java)
+          type: string
+          enum:
+            - '17'
+            - '21'
+          default: '21'
+        include_kafka:
+          title: Include Kafka client libraries
+          type: boolean
+          default: false
+          description: Adds NB Kafka platform connectivity
+        include_db:
+          title: Include database connectivity
+          type: boolean
+          default: false
+        db_type:
+          title: Database Type
+          type: string
+          enum:
+            - postgresql
+            - sqlserver
+            - mongodb
+          enumNames:
+            - PostgreSQL
+            - SQL Server
+            - MongoDB
+          default: postgresql
+      dependencies:
+        include_db:
+          oneOf:
+            - properties:
+                include_db:
+                  const: false
+            - properties:
+                include_db:
+                  const: true
+                db_type:
+                  title: Database Type
+                  type: string
+
+    # ──────────────────────────────────────────────
+    # STEP 3 — Coder Workspace Config
+    # ──────────────────────────────────────────────
+    - title: Coder Workspace
+      required:
+        - coder_template
+        - workspace_cpu
+        - workspace_memory
+      properties:
+        coder_template:
+          title: Coder Workspace Template
+          type: string
+          enum:
+            - nb-openshift-pod
+            - nb-openshift-pod-gpu
+          enumNames:
+            - Standard (OpenShift Pod)
+            - GPU-enabled (OpenShift Pod + GPU)
+          default: nb-openshift-pod
+        workspace_cpu:
+          title: CPU Cores
+          type: string
+          enum:
+            - '2'
+            - '4'
+            - '8'
+          default: '4'
+        workspace_memory:
+          title: Memory (GB)
+          type: string
+          enum:
+            - '4'
+            - '8'
+            - '16'
+          default: '8'
+        workspace_disk:
+          title: Persistent Storage (GB)
+          type: string
+          enum:
+            - '10'
+            - '20'
+            - '50'
+          default: '20'
+        dotfiles_repo:
+          title: Dotfiles Repository (optional)
+          type: string
+          description: Git URL for your personal dotfiles
+          default: ''
+
+    # ──────────────────────────────────────────────
+    # STEP 4 — GitOps & Deployment
+    # ──────────────────────────────────────────────
+    - title: GitOps & Deployment
+      required:
+        - repo_url
+        - target_namespace
+      properties:
+        repo_url:
+          title: GitHub Repository
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+            allowedOwners:
+              - sansow
+        target_namespace:
+          title: Target Namespace
+          type: string
+          description: OpenShift namespace for deployment
+          pattern: '^[a-z][a-z0-9-]*$'
+        deploy_environments:
+          title: Deployment Environments
+          type: array
+          items:
+            type: string
+            enum:
+              - dev
+              - staging
+              - production
+          default:
+            - dev
+            - staging
+          uniqueItems: true
+          ui:widget: checkboxes
+
+  # ──────────────────────────────────────────────
+  # ACTIONS — What happens after the wizard
+  # ──────────────────────────────────────────────
+  steps:
+    # 1 — Scaffold the repo from skeleton/
+    - id: fetch-base
+      name: Fetch Base Template
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: .
+        values:
+          component_id: ${{ parameters.component_id }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          system: ${{ parameters.system }}
+          language: ${{ parameters.language }}
+          java_version: ${{ parameters.java_version }}
+          include_kafka: ${{ parameters.include_kafka }}
+          include_db: ${{ parameters.include_db }}
+          db_type: ${{ parameters.db_type }}
+          coder_template: ${{ parameters.coder_template }}
+          workspace_cpu: ${{ parameters.workspace_cpu }}
+          workspace_memory: ${{ parameters.workspace_memory }}
+          workspace_disk: ${{ parameters.workspace_disk }}
+          dotfiles_repo: ${{ parameters.dotfiles_repo }}
+          target_namespace: ${{ parameters.target_namespace }}
+          deploy_environments: ${{ parameters.deploy_environments }}
+
+    # 2 — Publish to GitHub
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repo_url }}
+        description: ${{ parameters.description }}
+        repoVisibility: internal
+        defaultBranch: main
+        protectDefaultBranch: true
+        requireCodeOwnerReviews: true
+
+    # 3 — Register in Backstage catalog
+    - id: register
+      name: Register in RHDH Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    # 4 — Create Coder workspace
+    - id: coder-workspace
+      name: Create Coder Workspace
+      action: coder:sdk:create
+      input:
+        name: ${{ parameters.component_id }}
+        template_name: ${{ parameters.coder_template }}
+        rich_parameters:
+          cpu: ${{ parameters.workspace_cpu }}
+          memory: ${{ parameters.workspace_memory }}
+          disk: ${{ parameters.workspace_disk }}
+          repo_url: ${{ steps.publish.output.remoteUrl }}
+          dotfiles_url: ${{ parameters.dotfiles_repo }}
+          namespace: ${{ parameters.target_namespace }}-dev
+          image: >-
+            ${{ parameters.language == 'java-springboot' and 'registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/java-workspace:21' or
+                parameters.language == 'python-fastapi' and 'registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/python-workspace:3.12' or
+                parameters.language == 'dotnet-webapi' and 'registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/dotnet-workspace:8.0' or
+                'registry.apps.cluster-cnhmj.dynamic.redhatworkshops.io/devtools/node-workspace:20' }}
+
+    # 5 — Create ArgoCD Application
+    - id: argocd-create
+      name: Create ArgoCD Application
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.component_id }}
+        argoInstance: nb-argocd
+        projectName: ${{ parameters.system }}
+        namespace: ${{ parameters.target_namespace }}
+        repoUrl: ${{ steps.publish.output.remoteUrl }}
+        path: chart/
+
+  # ──────────────────────────────────────────────
+  # OUTPUT — Links shown after scaffolding
+  # ──────────────────────────────────────────────
+  output:
+    links:
+      - title: Open in Coder
+        url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/@${{ user.entity.metadata.name }}/${{ parameters.component_id }}
+        icon: dashboard
+      - title: GitHub Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+        icon: github
+      - title: View in RHDH Catalog
+        url: ${{ steps.register.output.entityRef }}
+        icon: catalog
+      - title: ArgoCD Application
+        url: https://argocd.apps.cluster-cnhmj.dynamic.redhatworkshops.io/applications/${{ parameters.component_id }}
+        icon: cloud
