@@ -1,0 +1,782 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nb-golden-path-python-coe
+  title: NB Golden Path — Python FastAPI Service
+  description: |
+    Production-ready Python FastAPI microservice scaffold with the full
+    Neuberger Berman baseline baked in:
+      • Coder remote workspace (OpenShift internal registry, UBI9)
+      • ACS image scan + runtime policy enforcement
+      • Network Observability (eBPF flows, FlowMetrics, deny-by-default NetworkPolicy)
+      • OpenShift Logging (Vector → LokiStack) with namespace-scoped ClusterLogForwarder
+      • Pre-built Grafana namespace dashboard (logs + app metrics)
+      • ArgoCD GitOps deployment (Helm chart, multi-env)
+  tags:
+    - recommended
+    - python
+    - fastapi
+    - coder
+    - gitops
+    - acs
+    - network-observability
+    - logging
+    - loki
+    - grafana
+    - golden-path
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+  links:
+    - title: Coder Dashboard
+      url: https://coder-coder.${{ parameters.cluster_domain }}
+      icon: dashboard
+    - title: NB Platform Docs
+      url: https://rhdh.${{ parameters.cluster_domain }}/docs/default/component/nb-platform-guide
+      icon: docs
+
+spec:
+  owner: platform-engineering
+  type: service
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  # PARAMETERS
+  # ══════════════════════════════════════════════════════════════════════════════
+  parameters:
+
+    # ── Hidden / auto-populated platform values ───────────────────────────────
+    - cluster_domain:
+        title: Cluster Domain
+        type: string
+        default: apps.cluster-cnhmj.dynamic.redhatworkshops.io
+        description: OpenShift apps domain (auto-populated)
+        ui:widget: hidden
+
+    - internal_registry:
+        title: Internal Image Registry
+        type: string
+        default: image-registry.openshift-image-registry.svc:5000
+        description: OpenShift internal image registry service endpoint (auto-populated)
+        ui:widget: hidden
+
+    - loki_stack_name:
+        title: LokiStack Instance Name
+        type: string
+        default: nb-lokistack
+        description: Name of the cluster-wide LokiStack CR (auto-populated)
+        ui:widget: hidden
+
+    - loki_namespace:
+        title: LokiStack Namespace
+        type: string
+        default: openshift-logging
+        description: Namespace where LokiStack is deployed (auto-populated)
+        ui:widget: hidden
+
+    # ──────────────────────────────────────────────
+    # STEP 1 — Application Info
+    # ──────────────────────────────────────────────
+    - title: Application Info
+      required:
+        - component_id
+        - description
+        - owner
+        - system
+      properties:
+        component_id:
+          title: Component Name
+          type: string
+          description: Unique name for this service (lowercase, hyphens only)
+          pattern: '^[a-z][a-z0-9-]*$'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: What does this FastAPI service do?
+        owner:
+          title: Owner Team
+          type: string
+          description: Team that owns this service
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: Group
+        system:
+          title: System
+          type: string
+          description: Which NB system does this belong to?
+          enum:
+            - trading-platform
+            - risk-engine
+            - compliance-suite
+            - data-platform
+            - operations
+          enumNames:
+            - Trading Platform
+            - Risk Engine
+            - Compliance Suite
+            - Data Platform
+            - Operations
+
+    # ──────────────────────────────────────────────
+    # STEP 2 — Python / FastAPI Config
+    # ──────────────────────────────────────────────
+    - title: Python & FastAPI Configuration
+      required:
+        - python_version
+        - app_port
+      properties:
+        python_version:
+          title: Python Version
+          type: string
+          enum:
+            - '3.11'
+            - '3.12'
+          enumNames:
+            - Python 3.11 (LTS)
+            - Python 3.12 (Latest)
+          default: '3.12'
+        app_port:
+          title: Application Port
+          type: integer
+          default: 8080
+          description: Port the FastAPI app listens on (8080 required for OpenShift non-root)
+        enable_async_workers:
+          title: Enable async worker pool (uvicorn + gunicorn)
+          type: boolean
+          default: true
+          description: Run with gunicorn + uvicorn workers for production throughput
+        worker_count:
+          title: Worker Count
+          type: integer
+          default: 4
+          minimum: 1
+          maximum: 16
+          description: Number of uvicorn workers (recommend 2× vCPU)
+        include_kafka:
+          title: Include NB Kafka client (confluent-kafka)
+          type: boolean
+          default: false
+          description: Adds confluent-kafka + schema-registry client pre-configured for NB brokers
+        include_db:
+          title: Include database connectivity (SQLAlchemy async)
+          type: boolean
+          default: false
+        db_type:
+          title: Database Type
+          type: string
+          enum:
+            - postgresql
+            - mongodb
+          enumNames:
+            - PostgreSQL (asyncpg)
+            - MongoDB (motor)
+          default: postgresql
+        include_redis:
+          title: Include Redis client (aioredis)
+          type: boolean
+          default: false
+          description: Adds aioredis for caching / rate-limiting patterns
+      dependencies:
+        include_db:
+          oneOf:
+            - properties:
+                include_db:
+                  const: false
+            - properties:
+                include_db:
+                  const: true
+                db_type:
+                  title: Database Type
+                  type: string
+
+    # ──────────────────────────────────────────────
+    # STEP 3 — Coder Workspace
+    # ──────────────────────────────────────────────
+    - title: Coder Workspace
+      required:
+        - coder_template
+        - workspace_cpu
+        - workspace_memory
+      properties:
+        coder_template:
+          title: Coder Workspace Template
+          type: string
+          enum:
+            - nb-openshift-pod
+            - nb-openshift-pod-gpu
+          enumNames:
+            - Standard (OpenShift Pod)
+            - GPU-enabled (OpenShift Pod + GPU)
+          default: nb-openshift-pod
+        workspace_cpu:
+          title: CPU Cores
+          type: string
+          enum:
+            - '2'
+            - '4'
+            - '8'
+          default: '4'
+        workspace_memory:
+          title: Memory (GB)
+          type: string
+          enum:
+            - '4'
+            - '8'
+            - '16'
+          default: '8'
+        workspace_disk:
+          title: Persistent Storage (GB)
+          type: string
+          enum:
+            - '10'
+            - '20'
+            - '50'
+          default: '20'
+        dotfiles_repo:
+          title: Dotfiles Repository (optional)
+          type: string
+          description: Git URL for your personal dotfiles
+          default: ''
+
+    # ──────────────────────────────────────────────
+    # STEP 4 — GitOps & Deployment
+    # ──────────────────────────────────────────────
+    - title: GitOps & Deployment
+      required:
+        - repo_url
+        - target_namespace
+      properties:
+        repo_url:
+          title: GitHub Repository
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+            allowedOwners:
+              - neuberger-berman
+        target_namespace:
+          title: Target Namespace
+          type: string
+          description: OpenShift base namespace (suffixes -dev / -staging / -prod appended per env)
+          pattern: '^[a-z][a-z0-9-]*$'
+        deploy_environments:
+          title: Deployment Environments
+          type: array
+          items:
+            type: string
+            enum:
+              - dev
+              - staging
+              - production
+          default:
+            - dev
+            - staging
+          uniqueItems: true
+          ui:widget: checkboxes
+        image_tag_strategy:
+          title: Image Tag Strategy
+          type: string
+          enum:
+            - git-sha
+            - semver
+          enumNames:
+            - Git SHA (recommended for GitOps)
+            - SemVer (manual release tagging)
+          default: git-sha
+
+    # ──────────────────────────────────────────────
+    # STEP 5 — Security (ACS)
+    # ──────────────────────────────────────────────
+    - title: Security — ACS
+      properties:
+        enable_acs_scan:
+          title: Enable ACS Image Scanning
+          type: boolean
+          default: true
+          description: >
+            Scan built image against NB ACS Central enforced policies
+            (Vulnerability Management, DevOps Best Practices, Security Best Practices)
+        acs_fail_on_policy_violation:
+          title: Fail build on ACS policy violation
+          type: boolean
+          default: true
+          description: Block promotion if ACS detects CRITICAL or HIGH severity violations
+        enable_acs_runtime_policy:
+          title: Enable ACS runtime policy enforcement
+          type: boolean
+          default: true
+          description: >
+            Create an ACS NetworkPolicy + runtime detection policy for this workload
+            to alert on anomalous process execution and unexpected network egress at runtime
+
+    # ──────────────────────────────────────────────
+    # STEP 6 — Network Observability
+    # ──────────────────────────────────────────────
+    - title: Network Observability
+      properties:
+        enable_network_observability:
+          title: Enable Network Observability
+          type: boolean
+          default: true
+          description: >
+            Label namespace for eBPF-based network flow collection via the
+            Network Observability Operator. Flows visible in OpenShift console
+            topology view and queryable via LokiStack.
+        netobserv_flow_sampling:
+          title: Network Flow Sampling Rate (%)
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 100
+          description: >
+            Percentage of flows to sample. Recommended: 50 for dev/staging, 25 for prod.
+        enable_network_policy:
+          title: Scaffold deny-by-default NetworkPolicy
+          type: boolean
+          default: true
+          description: >
+            Generate baseline deny-all ingress/egress NetworkPolicy with
+            explicit allow rules for this service and its declared dependencies
+
+    # ──────────────────────────────────────────────
+    # STEP 7 — Logging & Observability
+    # ──────────────────────────────────────────────
+    - title: Logging & Observability
+      properties:
+        enable_namespace_logging:
+          title: Enable Namespace-scoped Log Forwarding (OpenShift Logging + Loki)
+          type: boolean
+          default: true
+          description: >
+            Deploy a namespace-scoped ClusterLogForwarder that routes application logs
+            from this namespace to the NB LokiStack instance (nb-lokistack in
+            openshift-logging). Enables log queries in the OpenShift console and Grafana.
+        log_retention_days:
+          title: Log Retention (days)
+          type: integer
+          default: 30
+          enum:
+            - 7
+            - 14
+            - 30
+            - 90
+          enumNames:
+            - 7 days
+            - 14 days
+            - 30 days (default)
+            - 90 days (compliance)
+          description: How long logs are retained in LokiStack for this namespace
+        log_level:
+          title: Default Application Log Level
+          type: string
+          enum:
+            - DEBUG
+            - INFO
+            - WARNING
+            - ERROR
+          default: INFO
+          description: >
+            Default log level written to the LOG_LEVEL env var in the Deployment.
+            Structured JSON logging is always enabled via python-json-logger.
+        enable_audit_logging:
+          title: Enable Kubernetes audit log forwarding for this namespace
+          type: boolean
+          default: false
+          description: >
+            Also forward kube-apiserver audit events for this namespace to Loki.
+            Recommended for compliance-suite and trading-platform systems.
+        enable_grafana_dashboard:
+          title: Deploy Namespace Logging Grafana Dashboard
+          type: boolean
+          default: true
+          description: >
+            Scaffold a pre-built Grafana dashboard ConfigMap (nb-logging-dashboard)
+            with panels for: log volume by level, error rate, slow requests,
+            top log-emitting pods, and log stream explorer (Loki datasource).
+        grafana_namespace:
+          title: Grafana Instance Namespace
+          type: string
+          default: nb-monitoring
+          description: Namespace where the Grafana operator instance is running
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  # ACTIONS
+  # ══════════════════════════════════════════════════════════════════════════════
+  steps:
+
+    # ── 1. Scaffold repo from skeleton ────────────────────────────────────────
+    - id: fetch-base
+      name: Scaffold Python FastAPI Service
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: .
+        values:
+          component_id:               ${{ parameters.component_id }}
+          description:                ${{ parameters.description }}
+          owner:                      ${{ parameters.owner }}
+          system:                     ${{ parameters.system }}
+          python_version:             ${{ parameters.python_version }}
+          app_port:                   ${{ parameters.app_port }}
+          enable_async_workers:       ${{ parameters.enable_async_workers }}
+          worker_count:               ${{ parameters.worker_count }}
+          include_kafka:              ${{ parameters.include_kafka }}
+          include_db:                 ${{ parameters.include_db }}
+          db_type:                    ${{ parameters.db_type }}
+          include_redis:              ${{ parameters.include_redis }}
+          coder_template:             ${{ parameters.coder_template }}
+          workspace_cpu:              ${{ parameters.workspace_cpu }}
+          workspace_memory:           ${{ parameters.workspace_memory }}
+          workspace_disk:             ${{ parameters.workspace_disk }}
+          target_namespace:           ${{ parameters.target_namespace }}
+          deploy_environments:        ${{ parameters.deploy_environments }}
+          image_tag_strategy:         ${{ parameters.image_tag_strategy }}
+          log_level:                  ${{ parameters.log_level }}
+          log_retention_days:         ${{ parameters.log_retention_days }}
+          enable_audit_logging:       ${{ parameters.enable_audit_logging }}
+          enable_network_policy:      ${{ parameters.enable_network_policy }}
+          internal_registry:          ${{ parameters.internal_registry }}
+          loki_stack_name:            ${{ parameters.loki_stack_name }}
+          loki_namespace:             ${{ parameters.loki_namespace }}
+          grafana_namespace:          ${{ parameters.grafana_namespace }}
+
+    # ── 2. Scaffold NetworkPolicy (deny-by-default + service allows) ──────────
+    - id: fetch-network-policy
+      name: Scaffold NetworkPolicy Templates
+      if: ${{ parameters.enable_network_policy }}
+      action: fetch:template
+      input:
+        url: ./skeleton/network-policy
+        targetPath: chart/templates/network-policy
+        values:
+          component_id:     ${{ parameters.component_id }}
+          target_namespace: ${{ parameters.target_namespace }}
+          app_port:         ${{ parameters.app_port }}
+          include_kafka:    ${{ parameters.include_kafka }}
+          include_db:       ${{ parameters.include_db }}
+          include_redis:    ${{ parameters.include_redis }}
+
+    # ── 3. Scaffold ClusterLogForwarder + LokiStack tenant config ─────────────
+    - id: fetch-logging-config
+      name: Scaffold Namespace Log Forwarding (OpenShift Logging → Loki)
+      if: ${{ parameters.enable_namespace_logging }}
+      action: fetch:template
+      input:
+        url: ./skeleton/logging
+        targetPath: chart/templates/logging
+        values:
+          component_id:         ${{ parameters.component_id }}
+          target_namespace:     ${{ parameters.target_namespace }}
+          loki_stack_name:      ${{ parameters.loki_stack_name }}
+          loki_namespace:       ${{ parameters.loki_namespace }}
+          log_retention_days:   ${{ parameters.log_retention_days }}
+          enable_audit_logging: ${{ parameters.enable_audit_logging }}
+
+    # ── 4. Scaffold Grafana Dashboard ConfigMap ───────────────────────────────
+    - id: fetch-grafana-dashboard
+      name: Scaffold Grafana Namespace Logging Dashboard
+      if: ${{ parameters.enable_grafana_dashboard }}
+      action: fetch:template
+      input:
+        url: ./skeleton/grafana
+        targetPath: chart/templates/grafana
+        values:
+          component_id:       ${{ parameters.component_id }}
+          target_namespace:   ${{ parameters.target_namespace }}
+          loki_stack_name:    ${{ parameters.loki_stack_name }}
+          loki_namespace:     ${{ parameters.loki_namespace }}
+          grafana_namespace:  ${{ parameters.grafana_namespace }}
+          log_retention_days: ${{ parameters.log_retention_days }}
+
+    # ── 5. Publish to GitHub ──────────────────────────────────────────────────
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        repoUrl:                 ${{ parameters.repo_url }}
+        description:             ${{ parameters.description }}
+        repoVisibility:          internal
+        defaultBranch:           main
+        protectDefaultBranch:    true
+        requireCodeOwnerReviews: true
+
+    # ── 6. Register in RHDH Catalog ───────────────────────────────────────────
+    - id: register
+      name: Register in RHDH Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    # ── 7. Create Coder Workspace (internal registry Python image) ────────────
+    - id: coder-workspace
+      name: Create Coder Workspace (Python ${{ parameters.python_version }})
+      action: coder:sdk:create
+      input:
+        name:          ${{ parameters.component_id }}
+        template_name: ${{ parameters.coder_template }}
+        rich_parameters:
+          cpu:          ${{ parameters.workspace_cpu }}
+          memory:       ${{ parameters.workspace_memory }}
+          disk:         ${{ parameters.workspace_disk }}
+          repo_url:     ${{ steps.publish.output.remoteUrl }}
+          dotfiles_url: ${{ parameters.dotfiles_repo }}
+          namespace:    ${{ parameters.target_namespace }}-dev
+          # ── UBI9 Python workspace image from OpenShift internal registry ──
+          # ImageStream: nb-devtools/python-workspace
+          # Tags:  ubi9-py3.12  |  ubi9-py3.11
+          # Includes: python, pip, poetry, pipenv, uvicorn, ruff, mypy,
+          #           oc CLI, git, vim, tmux, VS Code server (code-server)
+          image: >-
+            ${{ parameters.internal_registry }}/nb-devtools/python-workspace:ubi9-py${{ parameters.python_version }}
+
+    # ── 8. ACS Image Scan ─────────────────────────────────────────────────────
+    - id: acs-image-scan
+      name: ACS — Image Scan & Policy Check
+      if: ${{ parameters.enable_acs_scan }}
+      action: nb:acs:scan
+      input:
+        image: >-
+          ${{ parameters.internal_registry }}/${{ parameters.target_namespace }}-dev/${{ parameters.component_id }}:latest
+        acsInstanceName:      nb-acs-central
+        policyCategories:
+          - Vulnerability Management
+          - DevOps Best Practices
+          - Security Best Practices
+        failOnPolicyViolation: ${{ parameters.acs_fail_on_policy_violation }}
+        failBuildSeverity:     HIGH
+        outputFormat:          sarif
+        sarifOutputPath:       acs-scan-results.sarif
+
+    # ── 9. Upload ACS SARIF report ────────────────────────────────────────────
+    - id: acs-upload-sarif
+      name: ACS — Upload SARIF to GitHub Security Tab
+      if: ${{ parameters.enable_acs_scan }}
+      action: github:publish:file
+      input:
+        repoUrl:       ${{ parameters.repo_url }}
+        sourcePath:    acs-scan-results.sarif
+        targetPath:    .github/acs-scan-results.sarif
+        commitMessage: "ci: add ACS scan SARIF report [skip ci]"
+
+    # ── 10. ACS Runtime Policy ────────────────────────────────────────────────
+    - id: acs-runtime-policy
+      name: ACS — Create Runtime Detection Policy
+      if: ${{ parameters.enable_acs_runtime_policy }}
+      action: nb:acs:create-policy
+      input:
+        policyName:   nb-${{ parameters.component_id }}-runtime
+        description:  Runtime detection policy for ${{ parameters.component_id }} in ${{ parameters.target_namespace }}
+        lifecycleStages:
+          - RUNTIME
+        categories:
+          - Anomalous Activity
+          - Network Activity
+        scope:
+          - namespace: ${{ parameters.target_namespace }}-dev
+          - namespace: ${{ parameters.target_namespace }}-staging
+          - namespace: ${{ parameters.target_namespace }}-prod
+        notifiers:
+          - nb-splunk-notifier
+          - nb-slack-security-alerts
+
+    # ── 11. Network Observability — label namespace + FlowMetric CR ───────────
+    - id: network-observability-setup
+      name: Network Observability — Label Namespace & FlowMetric CR
+      if: ${{ parameters.enable_network_observability }}
+      action: nb:openshift:apply
+      input:
+        resources:
+          # Label namespace so the Network Observability Operator targets it
+          - apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: ${{ parameters.target_namespace }}-dev
+              labels:
+                network.openshift.io/policy-group: nb-netobserv
+                nb.io/network-observability: enabled
+                app.kubernetes.io/managed-by: rhdh-golden-path
+
+          # FlowMetric CR — per-workload eBPF flow counters scraped by Prometheus
+          # Visible in: OpenShift Console → Observe → Network Traffic topology
+          # Queryable via: Loki tenant "network" on nb-lokistack
+          - apiVersion: flows.netobserv.io/v1alpha1
+            kind: FlowMetric
+            metadata:
+              name: ${{ parameters.component_id }}-flow-metrics
+              namespace: ${{ parameters.target_namespace }}-dev
+            spec:
+              metricName: nb_workload_flows_total
+              type: Counter
+              filters:
+                - field: SrcK8S_Namespace
+                  value: ${{ parameters.target_namespace }}-dev
+                  matchType: Equal
+              labels:
+                - SrcK8S_OwnerName
+                - DstK8S_OwnerName
+                - Proto
+                - Flags
+
+    # ── 12. OpenShift Logging — ClusterLogForwarder (namespace-scoped) ─────────
+    #   Uses the OpenShift Logging 6.x namespace-scoped CLF model.
+    #   The CLF in the application namespace selects its own pod logs via
+    #   a labelSelector and forwards them to the cluster-wide LokiStack
+    #   using a serviceAccount with collect-application-logs ClusterRole.
+    #   Logs are written to the Loki tenant "application" under the stream
+    #   label {kubernetes_namespace_name="<target_namespace>-dev"}.
+    - id: logging-clf-apply
+      name: OpenShift Logging — Apply namespace ClusterLogForwarder
+      if: ${{ parameters.enable_namespace_logging }}
+      action: nb:openshift:apply
+      input:
+        resources:
+          # ServiceAccount used by the Vector collector in this namespace
+          - apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: ${{ parameters.component_id }}-log-collector
+              namespace: ${{ parameters.target_namespace }}-dev
+              annotations:
+                # Grants the SA the collect-application-logs ClusterRole
+                # (pre-provisioned by the platform team via ACM policy)
+                nb.io/log-collector-role-binding: "true"
+
+          # Namespace-scoped ClusterLogForwarder (OCP Logging 6.x API)
+          - apiVersion: observability.openshift.io/v1
+            kind: ClusterLogForwarder
+            metadata:
+              name: ${{ parameters.component_id }}-clf
+              namespace: ${{ parameters.target_namespace }}-dev
+            spec:
+              serviceAccount:
+                name: ${{ parameters.component_id }}-log-collector
+              inputs:
+                - name: app-logs
+                  type: application
+                  application:
+                    selector:
+                      matchLabels:
+                        app.kubernetes.io/name: ${{ parameters.component_id }}
+                    namespaces:
+                      - ${{ parameters.target_namespace }}-dev
+              outputs:
+                - name: nb-loki
+                  type: loki
+                  loki:
+                    # Reference the cluster-wide LokiStack via its FQDN
+                    url: >-
+                      https://${{ parameters.loki_stack_name }}-gateway-http.${{ parameters.loki_namespace }}.svc:8080/api/logs/v1/application
+                    authentication:
+                      token:
+                        from: serviceAccount
+                    labelKeys:
+                      - kubernetes.namespace_name
+                      - kubernetes.pod_name
+                      - kubernetes.container_name
+                      - log_type
+                    tuning:
+                      delivery: AtLeastOnce
+                      compression: snappy
+              pipelines:
+                - name: app-to-loki
+                  inputRefs:
+                    - app-logs
+                  outputRefs:
+                    - nb-loki
+                  # Parse JSON logs (python-json-logger output) for structured indexing
+                  parse: json
+                  labels:
+                    nb_component:   ${{ parameters.component_id }}
+                    nb_system:      ${{ parameters.system }}
+                    nb_owner:       ${{ parameters.owner }}
+                    log_retention:  "${{ parameters.log_retention_days }}d"
+
+    # ── 13. Grafana Dashboard — Namespace Logging ──────────────────────────────
+    #   A GrafanaDashboard CR (Grafana Operator v5 API) that provisions a
+    #   dashboard in the nb-monitoring Grafana instance with the following panels:
+    #     Row 1 — Log Volume    : Total logs/min by level (info/warn/error/debug)
+    #     Row 2 — Error Rate    : HTTP 5xx rate, exception count (from JSON logs)
+    #     Row 3 — Latency       : p50/p90/p99 request duration (from access logs)
+    #     Row 4 — Pod Activity  : Top log-emitting pods heatmap
+    #     Row 5 — Log Explorer  : Loki log panel — live tail for this namespace
+    - id: grafana-dashboard-apply
+      name: Grafana — Deploy Namespace Logging Dashboard
+      if: ${{ parameters.enable_grafana_dashboard }}
+      action: nb:openshift:apply
+      input:
+        resources:
+          - apiVersion: grafana.integreatly.org/v1beta1
+            kind: GrafanaDashboard
+            metadata:
+              name: ${{ parameters.component_id }}-logging-dashboard
+              namespace: ${{ parameters.grafana_namespace }}
+              labels:
+                grafana.integreatly.org/dashboard: "true"
+                nb.io/component:  ${{ parameters.component_id }}
+                nb.io/system:     ${{ parameters.system }}
+            spec:
+              instanceSelector:
+                matchLabels:
+                  dashboards: nb-grafana
+              folder: NB — Application Logging
+              # Dashboard JSON is rendered from the Helm skeleton template
+              # at chart/templates/grafana/dashboard-cm.yaml and referenced
+              # here via a configMapRef so it stays GitOps-managed.
+              configMapRef:
+                name: ${{ parameters.component_id }}-logging-dashboard-json
+                key:  dashboard.json
+              # Datasource substitution — maps __DS_LOKI__ to nb-lokistack
+              datasources:
+                - inputName:     __DS_LOKI__
+                  datasourceName: ${{ parameters.loki_stack_name }}
+
+    # ── 14. Create ArgoCD Application ─────────────────────────────────────────
+    - id: argocd-create
+      name: Create ArgoCD Application
+      action: argocd:create-resources
+      input:
+        appName:     ${{ parameters.component_id }}
+        argoInstance: nb-argocd
+        projectName: ${{ parameters.system }}
+        namespace:   ${{ parameters.target_namespace }}
+        repoUrl:     ${{ steps.publish.output.remoteUrl }}
+        path:        chart/
+
+  # ══════════════════════════════════════════════════════════════════════════════
+  # OUTPUT LINKS
+  # ══════════════════════════════════════════════════════════════════════════════
+  output:
+    links:
+      - title: Open in Coder
+        url: https://coder-coder.${{ parameters.cluster_domain }}/@${{ user.entity.metadata.name }}/${{ parameters.component_id }}
+        icon: dashboard
+
+      - title: GitHub Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+        icon: github
+
+      - title: View in RHDH Catalog
+        url: ${{ steps.register.output.entityRef }}
+        icon: catalog
+
+      - title: ArgoCD Application
+        url: https://argocd.${{ parameters.cluster_domain }}/applications/${{ parameters.component_id }}
+        icon: cloud
+
+      - title: ACS — Vulnerability Dashboard
+        url: https://acs-central.${{ parameters.cluster_domain }}/main/vulnerability-management/images
+        icon: security
+
+      - title: Network Observability — Flow Topology
+        url: https://console.${{ parameters.cluster_domain }}/netflow-traffic?namespace=${{ parameters.target_namespace }}-dev
+        icon: network
+
+      - title: Grafana — Namespace Logging Dashboard
+        url: https://grafana.${{ parameters.cluster_domain }}/d/${{ parameters.component_id }}-logging/nb-${{ parameters.component_id }}-logging-dashboard
+        icon: monitoring
+
+      - title: OpenShift Logging — Log Explorer (Loki)
+        url: https://console.${{ parameters.cluster_domain }}/monitoring/logs?q=%7Bkubernetes_namespace_name%3D%22${{ parameters.target_namespace }}-dev%22%7D
+        icon: logs
