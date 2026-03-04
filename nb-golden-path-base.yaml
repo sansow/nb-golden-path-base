@@ -1,0 +1,489 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nb-golden-path-base
+  title: NB Golden Path base — Coder Workspace
+  description: |
+    Scaffolds a production-ready application with Coder remote workspace,
+    ArgoCD GitOps deployment, ACS security scanning, Network Observability,
+    and full observability. Designed for Neuberger Berman platform engineers
+    and developers.
+  tags:
+    - recommended
+    - coder
+    - gitops
+    - acs
+    - network-observability
+    - golden-path
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+  links:
+    - title: Coder Dashboard
+      url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io
+      icon: dashboard
+spec:
+  owner: platform-engineering
+  type: service
+  parameters:
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # BUG FIX #1: Hidden/auto-populated params MUST be inside a step object
+    # with `title:` + `properties:` — bare key objects are invalid and cause
+    # Backstage to fail parsing the entire template (results in 404 / blank page)
+    # ──────────────────────────────────────────────────────────────────────────
+    - title: Platform Defaults
+      properties:
+        cluster_domain:
+          title: Cluster Domain
+          type: string
+          default: apps.cluster-cnhmj.dynamic.redhatworkshops.io
+          description: OpenShift apps domain (auto-populated)
+          ui:widget: hidden
+        internal_registry:
+          title: Internal Image Registry
+          type: string
+          default: image-registry.openshift-image-registry.svc:5000
+          description: OpenShift internal image registry service endpoint (auto-populated)
+          ui:widget: hidden
+
+    # ──────────────────────────────────────────────
+    # STEP 1 — Application Info
+    # ──────────────────────────────────────────────
+    - title: Application Info
+      required:
+        - component_id
+        - description
+        - owner
+        - system
+      properties:
+        component_id:
+          title: Component Name
+          type: string
+          description: Unique name for this component (lowercase, hyphens only)
+          pattern: '^[a-z][a-z0-9-]*$'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: What does this service do?
+        owner:
+          title: Owner Team
+          type: string
+          description: Team that owns this component
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: Group
+        system:
+          title: System
+          type: string
+          description: Which NB system does this belong to?
+          enum:
+            - trading-platform
+            - risk-engine
+            - compliance-suite
+            - data-platform
+            - operations
+          enumNames:
+            - Trading Platform
+            - Risk Engine
+            - Compliance Suite
+            - Data Platform
+            - Operations
+
+    # ──────────────────────────────────────────────
+    # STEP 2 — Tech Stack
+    # ──────────────────────────────────────────────
+    - title: Technology Stack
+      required:
+        - language
+      properties:
+        language:
+          title: Language / Framework
+          type: string
+          enum:
+            - java-springboot
+            - java-quarkus
+            - python-fastapi
+            - dotnet-webapi
+            - nodejs-express
+            - aiml-pytorch
+            - aiml-tensorflow
+          enumNames:
+            - Java — Spring Boot 3.x
+            - Java — Quarkus 3.x (Native-ready)
+            - Python — FastAPI
+            - .NET — Web API 8.x
+            - Node.js — Express
+            - AI/ML — PyTorch (GPU-ready)
+            - AI/ML — TensorFlow (GPU-ready)
+          default: java-springboot
+        java_version:
+          title: Java Version (Spring Boot / Quarkus)
+          type: string
+          enum:
+            - '17'
+            - '21'
+          default: '21'
+        python_version:
+          title: Python Version
+          type: string
+          enum:
+            - '3.11'
+            - '3.12'
+          default: '3.12'
+        dotnet_version:
+          title: .NET SDK Version
+          type: string
+          enum:
+            - '8.0'
+            - '9.0'
+          default: '8.0'
+        include_kafka:
+          title: Include Kafka client libraries
+          type: boolean
+          default: false
+          description: Adds NB Kafka platform connectivity
+        include_db:
+          title: Include database connectivity
+          type: boolean
+          default: false
+        db_type:
+          title: Database Type
+          type: string
+          enum:
+            - postgresql
+            - sqlserver
+            - mongodb
+          enumNames:
+            - PostgreSQL
+            - SQL Server
+            - MongoDB
+          default: postgresql
+      dependencies:
+        include_db:
+          oneOf:
+            - properties:
+                include_db:
+                  const: false
+            - properties:
+                include_db:
+                  const: true
+                db_type:
+                  title: Database Type
+                  type: string
+
+    # ──────────────────────────────────────────────
+    # STEP 3 — Coder Workspace Config
+    # ──────────────────────────────────────────────
+    - title: Coder Workspace
+      required:
+        - coder_template
+        - workspace_cpu
+        - workspace_memory
+      properties:
+        coder_template:
+          title: Coder Workspace Template
+          type: string
+          enum:
+            - nb-openshift-pod
+            - nb-openshift-pod-gpu
+          enumNames:
+            - Standard (OpenShift Pod)
+            - GPU-enabled (OpenShift Pod + GPU)
+          default: nb-openshift-pod
+        workspace_cpu:
+          title: CPU Cores
+          type: string
+          enum:
+            - '2'
+            - '4'
+            - '8'
+          default: '4'
+        workspace_memory:
+          title: Memory (GB)
+          type: string
+          enum:
+            - '4'
+            - '8'
+            - '16'
+            - '32'
+          default: '8'
+        workspace_disk:
+          title: Persistent Storage (GB)
+          type: string
+          enum:
+            - '10'
+            - '20'
+            - '50'
+            - '100'
+          default: '20'
+        dotfiles_repo:
+          title: Dotfiles Repository (optional)
+          type: string
+          description: Git URL for your personal dotfiles
+          default: ''
+
+    # ──────────────────────────────────────────────
+    # STEP 4 — GitOps & Deployment
+    # ──────────────────────────────────────────────
+    - title: GitOps & Deployment
+      required:
+        - repo_url
+        - target_namespace
+      properties:
+        repo_url:
+          title: GitHub Repository
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+            allowedOwners:
+              - neuberger-berman
+              - sansow
+        target_namespace:
+          title: Target Namespace
+          type: string
+          description: OpenShift namespace for deployment
+          pattern: '^[a-z][a-z0-9-]*$'
+        deploy_environments:
+          title: Deployment Environments
+          type: array
+          items:
+            type: string
+            enum:
+              - dev
+              - staging
+              - production
+          default:
+            - dev
+            - staging
+          uniqueItems: true
+          ui:widget: checkboxes
+
+    # ──────────────────────────────────────────────
+    # STEP 5 — Security & Observability
+    # ──────────────────────────────────────────────
+    - title: Security & Observability
+      properties:
+        enable_acs_scan:
+          title: Enable ACS Image Scanning
+          type: boolean
+          default: true
+          description: >
+            Run Red Hat Advanced Cluster Security image scan and policy check
+            against NB-enforced policies before deployment
+        acs_fail_on_policy_violation:
+          title: Fail build on ACS policy violation
+          type: boolean
+          default: true
+          description: >
+            Block deployment if ACS detects a CRITICAL or HIGH severity policy
+            violation (recommended for production workloads)
+        enable_network_observability:
+          title: Enable Network Observability
+          type: boolean
+          default: true
+          description: >
+            Deploy eBPF-based network flow collection via the Network Observability
+            Operator and expose flows in the OpenShift console and Loki
+        netobserv_flow_sampling:
+          title: Network Flow Sampling Rate
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 100
+          description: >
+            Percentage of network flows to sample (lower = less overhead,
+            higher = more visibility). Recommended: 50 for staging, 25 for prod.
+        enable_network_policy:
+          title: Scaffold deny-by-default NetworkPolicy
+          type: boolean
+          default: true
+          description: >
+            Generate a baseline deny-all ingress/egress NetworkPolicy with
+            explicit allow rules for this service
+
+  # ──────────────────────────────────────────────
+  # ACTIONS
+  # ──────────────────────────────────────────────
+  steps:
+    - id: fetch-base
+      name: Fetch Base Template
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: .
+        values:
+          component_id: ${{ parameters.component_id }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          system: ${{ parameters.system }}
+          language: ${{ parameters.language }}
+          java_version: ${{ parameters.java_version }}
+          python_version: ${{ parameters.python_version }}
+          dotnet_version: ${{ parameters.dotnet_version }}
+          include_kafka: ${{ parameters.include_kafka }}
+          include_db: ${{ parameters.include_db }}
+          db_type: ${{ parameters.db_type }}
+          coder_template: ${{ parameters.coder_template }}
+          workspace_cpu: ${{ parameters.workspace_cpu }}
+          workspace_memory: ${{ parameters.workspace_memory }}
+          workspace_disk: ${{ parameters.workspace_disk }}
+          dotfiles_repo: ${{ parameters.dotfiles_repo }}
+          target_namespace: ${{ parameters.target_namespace }}
+          deploy_environments: ${{ parameters.deploy_environments }}
+          enable_acs_scan: ${{ parameters.enable_acs_scan }}
+          enable_network_observability: ${{ parameters.enable_network_observability }}
+          enable_network_policy: ${{ parameters.enable_network_policy }}
+          internal_registry: ${{ parameters.internal_registry }}
+
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repo_url }}
+        description: ${{ parameters.description }}
+        repoVisibility: internal
+        defaultBranch: main
+        protectDefaultBranch: true
+        requireCodeOwnerReviews: true
+
+    - id: register
+      name: Register in RHDH Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    - id: coder-workspace
+      name: Create Coder Workspace
+      action: coder:sdk:create
+      input:
+        name: ${{ parameters.component_id }}
+        template_name: ${{ parameters.coder_template }}
+        rich_parameters:
+          cpu: ${{ parameters.workspace_cpu }}
+          memory: ${{ parameters.workspace_memory }}
+          disk: ${{ parameters.workspace_disk }}
+          repo_url: ${{ steps.publish.output.remoteUrl }}
+          dotfiles_url: ${{ parameters.dotfiles_repo }}
+          namespace: ${{ parameters.target_namespace }}-dev
+          image: >-
+            ${{ parameters.language == 'java-springboot'    and parameters.internal_registry + '/nb-devtools/java-workspace:ubi9-jdk' + parameters.java_version or
+                parameters.language == 'java-quarkus'       and parameters.internal_registry + '/nb-devtools/quarkus-workspace:ubi9-jdk' + parameters.java_version or
+                parameters.language == 'python-fastapi'     and parameters.internal_registry + '/nb-devtools/python-workspace:ubi9-py' + parameters.python_version or
+                parameters.language == 'dotnet-webapi'      and parameters.internal_registry + '/nb-devtools/dotnet-workspace:ubi9-' + parameters.dotnet_version or
+                parameters.language == 'nodejs-express'     and parameters.internal_registry + '/nb-devtools/node-workspace:ubi9-node20' or
+                parameters.language == 'aiml-pytorch'       and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-pytorch-cuda12' or
+                parameters.language == 'aiml-tensorflow'    and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-tensorflow-cuda12' or
+                parameters.internal_registry + '/nb-devtools/universal-workspace:ubi9-latest' }}
+
+    - id: acs-image-scan
+      name: ACS — Image Scan & Policy Check
+      if: ${{ parameters.enable_acs_scan }}
+      action: nb:acs:scan
+      input:
+        image: >-
+          ${{ parameters.internal_registry }}/${{ parameters.target_namespace }}-dev/${{ parameters.component_id }}:latest
+        acsInstanceName: nb-acs-central
+        policyCategories:
+          - Vulnerability Management
+          - DevOps Best Practices
+          - Security Best Practices
+        failOnPolicyViolation: ${{ parameters.acs_fail_on_policy_violation }}
+        failBuildSeverity: HIGH
+        outputFormat: sarif
+        sarifOutputPath: acs-scan-results.sarif
+
+    - id: acs-upload-sarif
+      name: ACS — Upload SARIF to GitHub
+      if: ${{ parameters.enable_acs_scan }}
+      action: github:publish:file
+      input:
+        repoUrl: ${{ parameters.repo_url }}
+        sourcePath: acs-scan-results.sarif
+        targetPath: .github/acs-scan-results.sarif
+        commitMessage: "ci: add ACS scan SARIF report [skip ci]"
+
+    - id: network-observability-setup
+      name: Network Observability — Label Namespace & Create FlowMetrics CR
+      if: ${{ parameters.enable_network_observability }}
+      action: nb:openshift:apply
+      input:
+        resources:
+          - apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: ${{ parameters.target_namespace }}-dev
+              labels:
+                network.openshift.io/policy-group: nb-netobserv
+                nb.io/network-observability: enabled
+                app.kubernetes.io/managed-by: rhdh-golden-path
+          - apiVersion: flows.netobserv.io/v1alpha1
+            kind: FlowMetric
+            metadata:
+              name: ${{ parameters.component_id }}-flow-metrics
+              namespace: ${{ parameters.target_namespace }}-dev
+            spec:
+              metricName: nb_workload_flows_total
+              type: Counter
+              filters:
+                - field: SrcK8S_Namespace
+                  value: ${{ parameters.target_namespace }}-dev
+                  matchType: Equal
+              labels:
+                - SrcK8S_OwnerName
+                - DstK8S_OwnerName
+                - Proto
+                - Flags
+
+    - id: network-policy-scaffold
+      name: Network Observability — Scaffold NetworkPolicy
+      if: ${{ parameters.enable_network_policy }}
+      action: fetch:template
+      input:
+        url: ./skeleton/network-policy
+        targetPath: chart/templates/network-policy
+        values:
+          component_id: ${{ parameters.component_id }}
+          target_namespace: ${{ parameters.target_namespace }}
+
+    - id: argocd-create
+      name: Create ArgoCD Application
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.component_id }}
+        argoInstance: nb-argocd
+        projectName: ${{ parameters.system }}
+        namespace: ${{ parameters.target_namespace }}
+        repoUrl: ${{ steps.publish.output.remoteUrl }}
+        path: chart/
+
+  # ──────────────────────────────────────────────
+  # OUTPUT
+  # ──────────────────────────────────────────────
+  output:
+    links:
+      - title: Open in Coder
+        url: https://coder-coder.${{ parameters.cluster_domain }}/@${{ user.entity.metadata.name }}/${{ parameters.component_id }}
+        icon: dashboard
+      - title: GitHub Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+        icon: github
+      - title: View in RHDH Catalog
+        url: ${{ steps.register.output.entityRef }}
+        icon: catalog
+      - title: ArgoCD Application
+        url: https://argocd.${{ parameters.cluster_domain }}/applications/${{ parameters.component_id }}
+        icon: cloud
+      # BUG FIX #2: output.links does NOT support `if:` conditionals — removed.
+      # These links are always shown; they simply won't do anything if the
+      # features were disabled during scaffolding.
+      - title: ACS Vulnerability Dashboard
+        url: https://acs-central.${{ parameters.cluster_domain }}/main/vulnerability-management/images
+        icon: security
+      - title: Network Observability — Flow Topology
+        url: https://console.${{ parameters.cluster_domain }}/netflow-traffic?namespace=${{ parameters.target_namespace }}-dev
+        icon: network
