@@ -17,7 +17,7 @@ metadata:
     backstage.io/techdocs-ref: dir:.
   links:
     - title: Coder Dashboard
-      url: https://coder.nb.internal
+      url: https://coder-coder.${{ parameters.cluster_domain }}
       icon: dashboard
 spec:
   owner: platform-engineering
@@ -26,6 +26,12 @@ spec:
   # STEP 1 — Project Details
   # ──────────────────────────────────────────────
   parameters:
+    - cluster_domain:
+          title: Cluster Domain
+          type: string
+          default: apps.cluster-cnhmj.dynamic.redhatworkshops.io
+          description: OpenShift apps domain (auto-populated)
+          ui:widget: hidden
     - title: Application Info
       required:
         - component_id
@@ -304,7 +310,7 @@ spec:
   output:
     links:
       - title: Open in Coder
-        url: https://coder.nb.internal/@${{ user.entity.metadata.name }}/${{ parameters.component_id }}
+        url: https://coder-coder.${{ parameters.cluster_domain }}/@${{ user.entity.metadata.name }}/${{ parameters.component_id }}
         icon: dashboard
       - title: GitHub Repository
         url: ${{ steps.publish.output.remoteUrl }}
@@ -313,5 +319,5 @@ spec:
         url: ${{ steps.register.output.entityRef }}
         icon: catalog
       - title: ArgoCD Application
-        url: https://argocd.nb.internal/applications/${{ parameters.component_id }}
+        url: https://argocd.${{ parameters.cluster_domain }}/applications/${{ parameters.component_id }}
         icon: cloud
