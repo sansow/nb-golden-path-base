@@ -1,0 +1,664 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nb-azuredevops-nexus-template
+  title: NB Multi-Runtime — Azure DevOps + Nexus/Artifactory
+  description: >
+    Multi-runtime microservice template (Python, Java Quarkus, Java Spring Boot, Node.js,
+    .NET, Go) using Azure DevOps Pipelines for CI and Nexus Repository or JFrog Artifactory
+    for artifact/package management. Pulls base images from the NB internal OpenShift registry.
+    Includes ACS scanning, RHTAS image signing, SBOM, SLSA provenance, Network Observability,
+    Coder workspace, and GitOps-based deployment via ArgoCD on OpenShift.
+  tags:
+    - python
+    - java
+    - quarkus
+    - springboot
+    - nodejs
+    - dotnet
+    - golang
+    - azure-devops
+    - nexus
+    - artifactory
+    - sscs
+    - sbom
+    - acs
+    - golden-path
+    - nb-coe
+    - coder
+spec:
+  owner: group:default/tssc
+  type: service
+
+  parameters:
+
+    # ── 1. Application Information ──────────────────────────────────────────
+    - title: Application Information
+      required:
+        - name
+        - owner
+        - description
+        - language
+        - system
+      properties:
+        name:
+          title: Component Name
+          type: string
+          description: Unique name of the component (RFC 1123 DNS label)
+          ui:autofocus: true
+          ui:field: EntityNamePicker
+          maxLength: 63
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:help: "Lowercase letters, digits, hyphens only. Example: nb-risk-engine"
+        description:
+          title: Description
+          type: string
+          description: Short description of the service
+          default: A microservice on the NB platform
+        owner:
+          title: Owner
+          type: string
+          description: Team or individual owning this component
+          default: group:default/tssc
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+        system:
+          title: System
+          type: string
+          description: The system this component belongs to
+          default: operations
+          enum:
+            - operations
+            - risk
+            - trading
+            - compliance
+            - data-platform
+            - portfolio
+        language:
+          title: Runtime
+          type: string
+          description: Choose your application runtime
+          default: python
+          enum:
+            - python
+            - java-quarkus
+            - java-springboot
+            - nodejs
+            - dotnet
+            - go
+          enumNames:
+            - Python 3.x
+            - Java — Quarkus (GraalVM / JVM)
+            - Java — Spring Boot
+            - Node.js
+            - .NET 8
+            - Go
+          ui:widget: radio
+      dependencies:
+        language:
+          oneOf:
+            - properties:
+                language:
+                  const: python
+                python_version:
+                  title: Python Version
+                  type: string
+                  default: "3.12"
+                  enum: ["3.11", "3.12"]
+            - properties:
+                language:
+                  const: java-quarkus
+                java_version:
+                  title: Java Version
+                  type: string
+                  default: "21"
+                  enum: ["17", "21"]
+                java_package_name:
+                  title: Java Package Name
+                  type: string
+                  default: com.nb.service
+                  ui:help: "e.g. com.neubergerberman.risk"
+                group_id:
+                  title: Maven Group ID
+                  type: string
+                  default: com.neubergerberman
+                artifact_id:
+                  title: Maven Artifact ID
+                  type: string
+                  default: my-service
+            - properties:
+                language:
+                  const: java-springboot
+                java_version:
+                  title: Java Version
+                  type: string
+                  default: "21"
+                  enum: ["17", "21"]
+                java_package_name:
+                  title: Java Package Name
+                  type: string
+                  default: com.nb.service
+                group_id:
+                  title: Maven Group ID
+                  type: string
+                  default: com.neubergerberman
+                artifact_id:
+                  title: Maven Artifact ID
+                  type: string
+                  default: my-service
+            - properties:
+                language:
+                  const: nodejs
+                node_version:
+                  title: Node.js Version
+                  type: string
+                  default: "20"
+                  enum: ["18", "20", "22"]
+            - properties:
+                language:
+                  const: dotnet
+                dotnet_version:
+                  title: .NET Version
+                  type: string
+                  default: "8.0"
+                  enum: ["6.0", "8.0"]
+            - properties:
+                language:
+                  const: go
+                go_version:
+                  title: Go Version
+                  type: string
+                  default: "1.22"
+                  enum: ["1.21", "1.22"]
+
+    # ── 2. Source Repository ────────────────────────────────────────────────
+    - title: Source Repository
+      required:
+        - repoOwner
+        - repoName
+        - branch
+      properties:
+        repoOwner:
+          title: GitHub Organization / Owner
+          type: string
+          default: sansow
+          ui:help: "GitHub org or user that will own the repositories"
+        repoName:
+          title: Repository Name
+          type: string
+          ui:help: "Source repo name (e.g. nb-risk-engine). GitOps repo will be <name>-gitops"
+        branch:
+          title: Default Branch
+          type: string
+          default: main
+
+    # ── 3. Azure DevOps ─────────────────────────────────────────────────────
+    - title: Azure DevOps Configuration
+      required:
+        - azureOrg
+        - azureProject
+      properties:
+        azureOrg:
+          title: Azure DevOps Organization
+          type: string
+          ui:help: "Your Azure DevOps org name (e.g. neuberger-berman)"
+        azureProject:
+          title: Azure DevOps Project
+          type: string
+          ui:help: "The project pipelines will run under (e.g. platform-engineering)"
+        azureServiceConnection:
+          title: Azure Service Connection Name
+          type: string
+          default: nb-openshift-connection
+          ui:help: "Service connection in Azure DevOps that points to your OpenShift/Quay registry"
+        azurePipelinePool:
+          title: Agent Pool
+          type: string
+          default: nb-linux-agents
+          ui:help: "Azure DevOps agent pool to use for pipeline runs"
+
+    # ── 4. Artifact Repository ──────────────────────────────────────────────
+    - title: Artifact Repository
+      required:
+        - artifactRepo
+        - artifactRepoUrl
+      properties:
+        artifactRepo:
+          title: Artifact Repository Type
+          type: string
+          default: nexus
+          enum:
+            - nexus
+            - artifactory
+          enumNames:
+            - Sonatype Nexus Repository
+            - JFrog Artifactory
+          ui:widget: radio
+        artifactRepoUrl:
+          title: Artifact Repository URL
+          type: string
+          default: https://nexus.nb.internal
+          ui:help: "Base URL of your Nexus or Artifactory instance"
+        artifactRepoOrg:
+          title: Repository / Organization Name
+          type: string
+          default: nb-internal
+          ui:help: "Nexus: repository name. Artifactory: virtual repo key (e.g. nb-python-local)"
+        artifactRepoUser:
+          title: Repository Username
+          type: string
+          default: nb-svc-account
+          ui:help: "Service account for publishing artifacts (credentials stored in Azure KeyVault)"
+
+    # ── 5. Internal Image Registry ──────────────────────────────────────────
+    - title: Internal Image Registry
+      required:
+        - imageRegistry
+        - imageOrg
+        - imageName
+      properties:
+        imageRegistry:
+          title: Internal Registry Host
+          type: string
+          default: image-registry.openshift-image-registry.svc:5000
+          ui:help: "NB internal OpenShift registry. For external: quay.io or your Nexus/Artifactory Docker repo"
+        imageOrg:
+          title: Registry Namespace / Org
+          type: string
+          default: tssc
+          ui:help: "OpenShift namespace or Quay org where images are pushed"
+        imageName:
+          title: Image Name
+          type: string
+          ui:help: "Usually same as the component name"
+        baseImageRegistry:
+          title: Base Image Registry
+          type: string
+          default: image-registry.openshift-image-registry.svc:5000
+          ui:help: "Where to pull approved base images from (internal registry for air-gapped)"
+        baseImageOrg:
+          title: Base Image Namespace
+          type: string
+          default: nb-base-images
+          ui:help: "Namespace/org containing approved NB base images"
+
+    # ── 6. Deployment Configuration ─────────────────────────────────────────
+    - title: Deployment Configuration
+      required:
+        - namespace
+        - target_namespace
+      properties:
+        namespace:
+          title: Deployment Namespace Prefix
+          type: string
+          default: tssc-app
+          ui:help: "Creates <namespace>-development, <namespace>-stage, <namespace>-prod"
+        target_namespace:
+          title: Primary Dev Namespace
+          type: string
+          default: nbdev
+        deploy_environments:
+          title: Deploy Environments
+          type: array
+          items:
+            type: string
+            enum:
+              - dev
+              - staging
+              - prod
+          default:
+            - dev
+            - staging
+          uniqueItems: true
+          ui:widget: checkboxes
+
+    # ── 7. Coder Workspace ──────────────────────────────────────────────────
+    - title: Coder Workspace
+      properties:
+        coder_template:
+          title: Coder Workspace Template
+          type: string
+          default: nb-openshift-pod
+          enum:
+            - nb-openshift-pod
+            - nb-openshift-pod-gpu
+            - nb-openshift-pod-large
+          enumNames:
+            - Standard (4 CPU / 8GB)
+            - GPU-enabled
+            - Large (8 CPU / 16GB)
+        workspace_cpu:
+          title: CPU (cores)
+          type: string
+          default: "4"
+          enum: ["2", "4", "8"]
+        workspace_memory:
+          title: Memory (GB)
+          type: string
+          default: "8"
+          enum: ["4", "8", "16"]
+        workspace_disk:
+          title: Disk (GB)
+          type: string
+          default: "20"
+          enum: ["10", "20", "50"]
+
+    # ── 8. Platform Features ────────────────────────────────────────────────
+    - title: Platform Features
+      properties:
+        enable_acs_scan:
+          title: Enable ACS Image Scan & Policy Check
+          type: boolean
+          default: true
+          ui:widget: radio
+        enable_network_observability:
+          title: Enable Network Observability
+          type: boolean
+          default: true
+          ui:widget: radio
+        enable_network_policy:
+          title: Deploy Network Policies
+          type: boolean
+          default: true
+          ui:widget: radio
+        enable_sbom:
+          title: Generate SBOM
+          type: boolean
+          default: true
+          ui:widget: radio
+        enable_signing:
+          title: Enable Image Signing (RHTAS/Cosign)
+          type: boolean
+          default: true
+          ui:widget: radio
+        repoVerifyCommits:
+          title: Verify Git Commits (RHTAS)
+          type: string
+          default: disabled
+          enum:
+            - enabled
+            - disabled
+
+  steps:
+
+    # ── 0. Fetch dynamic cluster/provisioning data ──────────────────────────
+    - id: fetch-provision-data
+      name: Fetch Provisioning Data
+      action: catalog:fetch
+      input:
+        entityRef: component:default/provisioning-data
+
+    # ── 1. Fetch GitOps skeleton ────────────────────────────────────────────
+    - id: fetch-gitops-skeleton
+      name: Fetch GitOps Skeleton
+      action: fetch:template
+      input:
+        url: ../../skeleton/gitops-template
+        targetPath: gitops
+        values:
+          name: ${{ parameters.name }}
+          appName: ${{ parameters.name }}-gitops
+          description: GitOps manifests for ${{ parameters.name }}
+          namespace: ${{ parameters.namespace }}
+          rhtapNamespace: tssc
+          defaultDeployNamespace: ${{ parameters.target_namespace }}
+          repoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops
+          srcRepoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}
+          argoComponent: ./components/${{ parameters.name }}/overlays/development
+          argoComponentOverlays: ./components/${{ parameters.name }}/overlays
+          owner: ${{ parameters.owner }}
+          image: ${{ parameters.baseImageRegistry }}/${{ parameters.baseImageOrg }}/rhtap-task-runner:latest
+          srcImage: ${{ parameters.imageRegistry }}/${{ parameters.imageOrg }}/${{ parameters.imageName }}
+          port: 8080
+          argoNS: tssc-gitops
+          argoProject: default
+          ciType: azure
+          gitRepoOwner: ${{ parameters.repoOwner }}
+          gitRepoName: ${{ parameters.repoName }}-gitops
+          gitSecret: gitops-auth-secret
+          gitSecretKey: password
+          webhookSecret: pipelines-secret
+          webhookSecretKey: webhook.secret
+          defaultBranch: ${{ parameters.branch }}
+          verifyCommits: ${{ parameters.repoVerifyCommits }}
+          isTekton: false
+          isJenkins: false
+          isGithubActions: false
+          isAzure: true
+          azureProject: ${{ parameters.azureProject }}
+          azureOrg: ${{ parameters.azureOrg }}
+          hostType: GitHub
+          secretRef: false
+
+    # ── 2. Fetch Azure DevOps GitOps CI skeleton ────────────────────────────
+    - id: fetch-gitops-ci-skeleton
+      name: Fetch GitOps CI Skeleton (Azure DevOps)
+      action: fetch:template
+      input:
+        url: ../../skeleton/ci/gitops-template/azure
+        targetPath: gitops
+        values:
+          name: ${{ parameters.name }}
+          appName: ${{ parameters.name }}-gitops
+          namespace: ${{ parameters.namespace }}
+          repoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops
+          srcRepoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}
+          owner: ${{ parameters.owner }}
+          srcImage: ${{ parameters.imageRegistry }}/${{ parameters.imageOrg }}/${{ parameters.imageName }}
+          port: 8080
+          argoNS: tssc-gitops
+          argoProject: default
+          gitRepoOwner: ${{ parameters.repoOwner }}
+          gitRepoName: ${{ parameters.repoName }}-gitops
+          gitSecret: gitops-auth-secret
+          defaultBranch: ${{ parameters.branch }}
+          azureOrg: ${{ parameters.azureOrg }}
+          azureProject: ${{ parameters.azureProject }}
+          azureServiceConnection: ${{ parameters.azureServiceConnection }}
+          azurePipelinePool: ${{ parameters.azurePipelinePool }}
+
+    # ── 3. Rename component directory ──────────────────────────────────────
+    - id: renameComponentDir
+      name: Rename Component Directory
+      action: fs:rename
+      input:
+        files:
+          - from: gitops/components/http
+            to: gitops/components/${{ parameters.name }}
+            overwrite: true
+
+    # ── 4. Publish GitOps repo ──────────────────────────────────────────────
+    - id: publish-github-gitops
+      name: Publish GitOps Repository to GitHub
+      action: publish:github
+      input:
+        sourcePath: gitops
+        description: GitOps repository for ${{ parameters.name }}
+        repoUrl: github.com?owner=${{ parameters.repoOwner }}&repo=${{ parameters.repoName }}-gitops
+        defaultBranch: ${{ parameters.branch }}
+        protectDefaultBranch: false
+        repoVisibility: public
+
+    # ── 5. Wait for GitOps repo ─────────────────────────────────────────────
+    - id: wait-for-gitops-repo
+      name: Waiting for GitOps Repository
+      action: debug:wait
+      input:
+        seconds: 3
+
+    # ── 6. Create ArgoCD resources ──────────────────────────────────────────
+    - id: create-argocd-resources
+      name: Create ArgoCD Resources
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.name }}-app-of-apps
+        argoInstance: default
+        namespace: tssc-gitops
+        repoUrl: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops.git
+        path: ./app-of-apps
+
+    # ── 7. Fetch runtime source skeleton ───────────────────────────────────
+    - id: fetch-base
+      name: Fetch Runtime Source
+      action: fetch:template
+      input:
+        targetPath: source
+        url: ./content/${{ parameters.language }}
+        values:
+          name: ${{ parameters.name }}
+          namespace: ${{ parameters.namespace }}
+          repoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops
+          srcRepoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}
+
+    # ── 8. Fetch source skeleton (catalog-info, Dockerfile, etc.) ──────────
+    - id: fetch-source-skeleton
+      name: Fetch Source Skeleton
+      action: fetch:template
+      input:
+        targetPath: source
+        url: ../../skeleton/source-repo
+        values:
+          name: ${{ parameters.name }}
+          namespace: ${{ parameters.namespace }}
+          description: ${{ parameters.description }}
+          language: ${{ parameters.language }}
+          # Runtime versions
+          python_version: ${{ parameters.python_version if parameters.language === 'python' else '' }}
+          java_version: ${{ parameters.java_version if parameters.language === 'java-quarkus' or parameters.language === 'java-springboot' else '' }}
+          node_version: ${{ parameters.node_version if parameters.language === 'nodejs' else '' }}
+          dotnet_version: ${{ parameters.dotnet_version if parameters.language === 'dotnet' else '' }}
+          go_version: ${{ parameters.go_version if parameters.language === 'go' else '' }}
+          java_package_name: ${{ parameters.java_package_name if parameters.language === 'java-quarkus' or parameters.language === 'java-springboot' else '' }}
+          group_id: ${{ parameters.group_id if parameters.language === 'java-quarkus' or parameters.language === 'java-springboot' else '' }}
+          artifact_id: ${{ parameters.artifact_id if parameters.language === 'java-quarkus' or parameters.language === 'java-springboot' else '' }}
+          # Registry
+          internalRegistry: ${{ parameters.imageRegistry }}
+          imageRegistry: ${{ parameters.imageRegistry }}
+          imageOrg: ${{ parameters.imageOrg }}
+          imageName: ${{ parameters.imageName }}
+          baseImageRegistry: ${{ parameters.baseImageRegistry }}
+          baseImageOrg: ${{ parameters.baseImageOrg }}
+          # Artifact repo
+          artifactRepo: ${{ parameters.artifactRepo }}
+          artifactRepoUrl: ${{ parameters.artifactRepoUrl }}
+          artifactRepoOrg: ${{ parameters.artifactRepoOrg }}
+          artifactRepoUser: ${{ parameters.artifactRepoUser }}
+          # Azure
+          ciType: azure
+          isAzure: true
+          isTekton: false
+          isJenkins: false
+          isGithubActions: false
+          azureOrg: ${{ parameters.azureOrg }}
+          azureProject: ${{ parameters.azureProject }}
+          azureServiceConnection: ${{ parameters.azureServiceConnection }}
+          azurePipelinePool: ${{ parameters.azurePipelinePool }}
+          # Repo
+          gitopsSecretName: gitops-auth-secret
+          repoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops
+          hostType: GitHub
+          gitRepoOwner: ${{ parameters.repoOwner }}
+          gitRepoName: ${{ parameters.repoName }}
+          owner: ${{ parameters.owner }}
+          repoSlug: ${{ parameters.imageOrg }}/${{ parameters.imageName }}
+          defaultBranch: ${{ parameters.branch }}
+          # Features
+          enable_acs_scan: ${{ parameters.enable_acs_scan }}
+          enable_network_observability: ${{ parameters.enable_network_observability }}
+          enable_network_policy: ${{ parameters.enable_network_policy }}
+          enable_sbom: ${{ parameters.enable_sbom }}
+          enable_signing: ${{ parameters.enable_signing }}
+          target_namespace: ${{ parameters.target_namespace }}
+          system: ${{ parameters.system }}
+          # Coder
+          coder_template: ${{ parameters.coder_template }}
+          workspace_cpu: ${{ parameters.workspace_cpu }}
+          workspace_memory: ${{ parameters.workspace_memory }}
+          workspace_disk: ${{ parameters.workspace_disk }}
+
+    # ── 9. Fetch Azure DevOps pipeline skeleton ─────────────────────────────
+    - id: fetch-source-ci-skeleton
+      name: Fetch Azure DevOps Pipeline Skeleton
+      action: fetch:template
+      input:
+        targetPath: source
+        url: ../../skeleton/ci/source-repo/azure
+        values:
+          name: ${{ parameters.name }}
+          namespace: ${{ parameters.namespace }}
+          description: ${{ parameters.description }}
+          language: ${{ parameters.language }}
+          imageRegistry: ${{ parameters.imageRegistry }}
+          imageOrg: ${{ parameters.imageOrg }}
+          imageName: ${{ parameters.imageName }}
+          baseImageRegistry: ${{ parameters.baseImageRegistry }}
+          baseImageOrg: ${{ parameters.baseImageOrg }}
+          artifactRepo: ${{ parameters.artifactRepo }}
+          artifactRepoUrl: ${{ parameters.artifactRepoUrl }}
+          artifactRepoOrg: ${{ parameters.artifactRepoOrg }}
+          azureOrg: ${{ parameters.azureOrg }}
+          azureProject: ${{ parameters.azureProject }}
+          azureServiceConnection: ${{ parameters.azureServiceConnection }}
+          azurePipelinePool: ${{ parameters.azurePipelinePool }}
+          repoURL: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}-gitops
+          owner: ${{ parameters.owner }}
+          repoSlug: ${{ parameters.imageOrg }}/${{ parameters.imageName }}
+          defaultBranch: ${{ parameters.branch }}
+          enable_acs_scan: ${{ parameters.enable_acs_scan }}
+          enable_sbom: ${{ parameters.enable_sbom }}
+          enable_signing: ${{ parameters.enable_signing }}
+
+    # ── 10. Publish source repo ─────────────────────────────────────────────
+    - id: publish-github-source
+      name: Publish Source Repository to GitHub
+      action: publish:github
+      input:
+        sourcePath: source
+        description: ${{ parameters.description }}
+        repoUrl: github.com?owner=${{ parameters.repoOwner }}&repo=${{ parameters.repoName }}
+        defaultBranch: ${{ parameters.branch }}
+        protectDefaultBranch: false
+        repoVisibility: public
+
+    # ── 11. Register source in catalog ──────────────────────────────────────
+    - id: register-source
+      name: Register Source in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-github-source'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    # ── 12. Register GitOps in catalog ──────────────────────────────────────
+    - id: register-gitops
+      name: Register GitOps in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-github-gitops'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Source Repository
+        url: ${{ steps['publish-github-source'].output.remoteUrl }}
+      - title: GitOps Repository
+        url: ${{ steps['publish-github-gitops'].output.remoteUrl }}
+      - title: Open Component in Catalog
+        icon: catalog
+        entityRef: ${{ steps['register-source'].output.entityRef }}
+      - title: Open GitOps Resource in Catalog
+        icon: catalog
+        entityRef: ${{ steps['register-gitops'].output.entityRef }}
+      - title: Open in Coder
+        url: https://coder-coder.${{ steps['fetch-provision-data'].output.entity.metadata.labels['ocp-apps-domain'] }}/@me/${{ parameters.name }}
+        icon: dashboard
+      - title: ArgoCD Application
+        url: https://argocd.${{ steps['fetch-provision-data'].output.entity.metadata.labels['ocp-apps-domain'] }}/applications/${{ parameters.name }}-app-of-apps
+        icon: cloud
+      - title: Azure DevOps Pipeline
+        url: https://dev.azure.com/${{ parameters.azureOrg }}/${{ parameters.azureProject }}/_pipelines
+        icon: settings
+      - title: Artifact Repository
+        url: ${{ parameters.artifactRepoUrl }}
+        icon: storage
