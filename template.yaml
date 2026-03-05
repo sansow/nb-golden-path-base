@@ -356,9 +356,6 @@ spec:
       input:
         repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
         catalogInfoPath: /catalog-info.yaml
-<<<<<<< Updated upstream
-=======
-
     - id: coder-workspace
       name: Create Coder Workspace
       action: debug:log
@@ -382,7 +379,6 @@ spec:
                 parameters.language == 'aiml-tensorflow'    and parameters.internal_registry + '/nb-devtools/aiml-workspace:ubi9-tensorflow-cuda12' or
                 parameters.internal_registry + '/nb-devtools/universal-workspace:ubi9-latest' }}
 
->>>>>>> Stashed changes
     - id: acs-image-scan
       name: ACS — Image Scan & Policy Check
       if: ${{ parameters.enable_acs_scan }}
