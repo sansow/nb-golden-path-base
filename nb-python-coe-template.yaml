@@ -473,22 +473,6 @@ spec:
       input:
         repoContentsUrl: ${{ steps['publish-github-gitops'].output.repoContentsUrl }}
         catalogInfoPath: /catalog-info.yaml
-    # ── 14. Create Coder Workspace ─────────────────────────────────────────
-    - id: create-coder-workspace
-      name: Create Coder Workspace
-      action: http:backstage:request
-      input:
-        method: POST
-        path: /api/proxy/coder/api/v2/organizations/default/members/${{ user.entity.metadata.name }}/workspaces
-        headers:
-          Content-Type: application/json
-        body:
-          template_name: nb-python-coder
-          name: ${{ parameters.name }}
-          rich_parameter_values:
-            - name: repo_url
-              value: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}
-
   output:
     links:
       - title: Source Repository
