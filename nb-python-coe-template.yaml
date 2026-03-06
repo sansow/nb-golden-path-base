@@ -473,6 +473,21 @@ spec:
       input:
         repoContentsUrl: ${{ steps['publish-github-gitops'].output.repoContentsUrl }}
         catalogInfoPath: /catalog-info.yaml
+    # ── 14. Create Coder Workspace ─────────────────────────────────────────
+    - id: create-coder-workspace
+      name: Create Coder Workspace
+      action: http:backstage:request
+      input:
+        method: POST
+        path: /api/proxy/coder/api/v2/organizations/default/members/${{ user.entity.metadata.name }}/workspaces
+        headers:
+          Content-Type: application/json
+        body:
+          template_name: nb-python-coder
+          name: ${{ parameters.name }}
+          rich_parameter_values:
+            - name: repo_url
+              value: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}
 
   output:
     links:
@@ -487,7 +502,7 @@ spec:
         icon: catalog
         entityRef: ${{ steps['register-gitops'].output.entityRef }}
       - title: Open in Coder
-        url: https://coder-coder.${{ steps['fetch-provision-data'].output.entity.metadata.labels['ocp-apps-domain'] }}/@me/${{ parameters.name }}
+        url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/@${{ user.entity.metadata.name }}/${{ parameters.name }}
         icon: dashboard
       - title: ArgoCD Application
         url: https://argocd.${{ steps['fetch-provision-data'].output.entity.metadata.labels['ocp-apps-domain'] }}/applications/${{ parameters.name }}-app-of-apps
