@@ -182,9 +182,9 @@ spec:
         coder_template:
           title: Coder Workspace Template
           type: string
-          default: nb-openshift-pod
+          default: nb-python-coder
           enum:
-            - nb-openshift-pod
+            - nb-python-coder
             - nb-openshift-pod-gpu
             - nb-openshift-pod-large
           enumNames:
@@ -502,7 +502,7 @@ spec:
         icon: catalog
         entityRef: ${{ steps['register-gitops'].output.entityRef }}
       - title: Open in Coder
-        url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/@${{ user.entity.metadata.name }}/${{ parameters.name }}
+        url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io/templates/coder/nb-python-coder/workspace?param.repo_url=https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}&param.name=${{ parameters.name }}
         icon: dashboard
       - title: ArgoCD Application
         url: https://argocd.${{ steps['fetch-provision-data'].output.entity.metadata.labels['ocp-apps-domain'] }}/applications/${{ parameters.name }}-app-of-apps
