@@ -45,7 +45,7 @@ data "coder_parameter" "image" {
   type         = "string"
   default      = "registry.access.redhat.com/ubi9/ubi:latest"
   option {
-    name  = "Ubuntu (Default)"
+    name  = "Red Hat UBI(Default)"
     value = "registry.access.redhat.com/ubi9/ubi:latest"
   }
   option {
@@ -155,6 +155,9 @@ resource "kubernetes_pod_v1" "workspace" {
       env {
         name  = "CODER_AGENT_TOKEN"
         value = coder_agent.main.token
+	
+  	name  = "CODER_AGENT_URL"
+  	value = "https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io"
       }
     }
 
