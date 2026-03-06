@@ -174,7 +174,7 @@ spec:
       name: Fetch GitOps Skeleton
       action: fetch:template
       input:
-        url: ../../skeleton/gitops-template
+        url: ./skeleton/gitops-template
         targetPath: gitops
         values:
           name: ${{ parameters.name }}
@@ -212,7 +212,7 @@ spec:
       name: Fetch GitOps CI (Tekton)
       action: fetch:template
       input:
-        url: ../../skeleton/ci/gitops-template/tekton
+        url: ./skeleton/ci/gitops-template/tekton
         targetPath: gitops
         values:
           name: ${{ parameters.name }}
@@ -301,7 +301,7 @@ spec:
       action: fetch:template
       input:
         targetPath: source
-        url: ../../skeleton/source-repo
+        url: ./skeleton/source-repo
         values:
           name: ${{ parameters.name }}
           namespace: ${{ parameters.namespace }}
@@ -335,7 +335,7 @@ spec:
       action: fetch:template
       input:
         targetPath: source
-        url: ../../skeleton/ci/source-repo/tekton
+        url: ./skeleton/ci/source-repo/tekton
         values:
           name: ${{ parameters.name }}
           namespace: ${{ parameters.namespace }}

@@ -247,7 +247,7 @@ spec:
       name: Fetch GitOps Skeleton
       action: fetch:template
       input:
-        url: ../../skeleton/gitops-template
+        url: ./skeleton/gitops-template
         targetPath: gitops
         values:
           name: ${{ parameters.name }}
@@ -289,7 +289,7 @@ spec:
       name: Fetch GitOps CI Skeleton
       action: fetch:template
       input:
-        url: ../../skeleton/ci/gitops-template/${{ parameters.ciType }}
+        url: ./skeleton/ci/gitops-template/${{ parameters.ciType }}
         copyWithoutRender:
           - .github/workflows/*
         targetPath: gitops
@@ -385,7 +385,7 @@ spec:
       action: fetch:template
       input:
         targetPath: source
-        url: ../../skeleton/source-repo
+        url: ./skeleton/source-repo
         values:
           name: ${{ parameters.name }}
           namespace: ${{ parameters.namespace }}
@@ -427,7 +427,7 @@ spec:
       action: fetch:template
       input:
         targetPath: source
-        url: ../../skeleton/ci/source-repo/${{ parameters.ciType }}
+        url: ./skeleton/ci/source-repo/${{ parameters.ciType }}
         copyWithoutRender:
           - .github/workflows/*
         values:
