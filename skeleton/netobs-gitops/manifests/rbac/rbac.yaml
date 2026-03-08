@@ -1,0 +1,43 @@
+# Gives developers in ${{ values.namespace }} read access to their own Loki logs
+# and NetObserv flows without cluster-admin privileges.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ values.name }}-netobs-viewer
+  namespace: ${{ values.namespace }}
+rules:
+  - apiGroups: ["flows.netobserv.io"]
+    resources: ["flowmetrics"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["loki.grafana.com"]
+    resources: ["application"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ values.name }}-netobs-viewer-binding
+  namespace: ${{ values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ values.name }}-netobs-viewer
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: ${{ values.team_label }}-developers
+---
+# ClusterRole to allow reading NetObserv console plugin data
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ${{ values.name }}-netobserv-console-plugin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: netobserv-reader
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: ${{ values.team_label }}-developers

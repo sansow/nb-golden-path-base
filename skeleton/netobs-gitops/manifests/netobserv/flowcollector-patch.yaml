@@ -1,0 +1,51 @@
+{% if values.enable_netobserv %}
+# FlowCollector is cluster-scoped — this patch adds your namespace to the
+# namespace filter so flows are captured for ${{ values.namespace }} only.
+# The NetObserv operator must already be installed cluster-wide.
+apiVersion: flows.netobserv.io/v1beta2
+kind: FlowCollector
+metadata:
+  name: cluster
+spec:
+  namespace: netobserv
+  deploymentModel: Direct
+  agent:
+    type: eBPF
+    ebpf:
+      sampling: ${{ values.netobserv_sampling }}
+      features:
+        {% if values.enable_dns_tracking %}- DNSTracking{% endif %}
+        {% if values.enable_rtt_tracking %}- FlowRTT{% endif %}
+        {% if values.enable_pkt_drop %}- PacketDrop{% endif %}
+  processor:
+    filters:
+      namespaces:
+        - ${{ values.namespace }}
+  loki:
+    enable: true
+    mode: LokiStack
+    lokiStack:
+      name: loki
+      namespace: netobserv
+  consolePlugin:
+    enable: true
+    autoscaler:
+      status: Disabled
+      minReplicas: 1
+---
+# NetworkPolicy — allow NetObserv eBPF agent to scrape your namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netobserv-agent
+  namespace: ${{ values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: netobserv
+{% endif %}

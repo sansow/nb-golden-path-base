@@ -1,0 +1,257 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nb-netobs-logging-dashboard
+  title: Network Observability & Logging Dashboard (NB)
+  description: >
+    Provisions per-namespace Network Observability (NetObserv Operator) and
+    Logging (LokiStack / ClusterLogging) dashboards for developer autonomy.
+    Creates namespace-scoped Grafana dashboards, Loki tenant config, RBAC,
+    and NetworkPolicy — wired into ArgoCD for GitOps-based lifecycle.
+  tags:
+    - network-observability
+    - loki
+    - logging
+    - grafana
+    - golden-path
+    - nb-platform
+spec:
+  owner: group:default/tssc
+  type: service
+
+  parameters:
+
+    - title: Team & Namespace
+      required:
+        - name
+        - owner
+        - namespace
+        - description
+      properties:
+        name:
+          title: Component Name
+          type: string
+          description: Unique identifier for this observability config (RFC 1123)
+          ui:autofocus: true
+          ui:field: EntityNamePicker
+          maxLength: 63
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:help: "e.g. nb-risk-netobs"
+        description:
+          title: Description
+          type: string
+          default: Network Observability and Logging dashboard for NB team namespace
+        owner:
+          title: Owner
+          type: string
+          default: group:default/tssc
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+        namespace:
+          title: Target Namespace
+          type: string
+          description: The developer namespace to enable observability for
+          ui:help: "e.g. nb-risk-dev, nbdev, nb-trading-dev"
+        team_label:
+          title: Team Label
+          type: string
+          description: Short team identifier used in dashboard titles and labels
+          ui:help: "e.g. risk, trading, compliance, ops"
+
+    - title: GitOps Repository
+      required:
+        - repoOwner
+        - repoName
+        - branch
+      properties:
+        repoOwner:
+          title: GitHub Organization / Owner
+          type: string
+          default: sansow
+        repoName:
+          title: Repository Name
+          type: string
+          ui:help: "e.g. nb-risk-netobs-gitops"
+        branch:
+          title: Default Branch
+          type: string
+          default: main
+
+    - title: Network Observability
+      properties:
+        enable_netobserv:
+          title: Enable Network Observability
+          type: boolean
+          default: true
+          ui:widget: radio
+        netobserv_sampling:
+          title: Flow Sampling Rate
+          type: integer
+          default: 50
+          description: Sample 1 in N packets (lower = more data, higher cost)
+          enum: [10, 50, 100, 500]
+          enumNames:
+            - "1 in 10 (high fidelity)"
+            - "1 in 50 (balanced)"
+            - "1 in 100 (low overhead)"
+            - "1 in 500 (minimal)"
+        enable_dns_tracking:
+          title: Enable DNS Tracking
+          type: boolean
+          default: true
+          ui:widget: radio
+        enable_rtt_tracking:
+          title: Enable RTT / Latency Tracking
+          type: boolean
+          default: true
+          ui:widget: radio
+        enable_pkt_drop:
+          title: Enable Packet Drop Tracking
+          type: boolean
+          default: false
+          ui:widget: radio
+
+    - title: Logging (LokiStack)
+      properties:
+        enable_loki:
+          title: Enable Loki Log Aggregation
+          type: boolean
+          default: true
+          ui:widget: radio
+        log_retention_days:
+          title: Log Retention (days)
+          type: integer
+          default: 7
+          enum: [3, 7, 14, 30]
+          enumNames:
+            - "3 days (dev/test)"
+            - "7 days (default)"
+            - "14 days (staging)"
+            - "30 days (production)"
+        enable_audit_logs:
+          title: Include Audit Logs
+          type: boolean
+          default: false
+          ui:widget: radio
+        enable_infra_logs:
+          title: Include Infrastructure Logs
+          type: boolean
+          default: false
+          ui:widget: radio
+
+    - title: Grafana Dashboards
+      properties:
+        enable_grafana:
+          title: Deploy Grafana Dashboards
+          type: boolean
+          default: true
+          ui:widget: radio
+        grafana_namespace:
+          title: Grafana Namespace
+          type: string
+          default: grafana
+          ui:help: "Namespace where Grafana operator is running"
+        dashboard_variants:
+          title: Dashboard Panels to Include
+          type: array
+          items:
+            type: string
+            enum:
+              - network-flows
+              - top-talkers
+              - dns-latency
+              - packet-drops
+              - log-volume
+              - error-rate
+              - pod-logs
+          default:
+            - network-flows
+            - top-talkers
+            - log-volume
+            - error-rate
+          uniqueItems: true
+          ui:widget: checkboxes
+
+  steps:
+
+    # ── 1. Fetch GitOps skeleton ────────────────────────────────────────────
+    - id: fetch-gitops-skeleton
+      name: Fetch GitOps Skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton/netobs-gitops
+        targetPath: gitops
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          namespace: ${{ parameters.namespace }}
+          team_label: ${{ parameters.team_label }}
+          repoOwner: ${{ parameters.repoOwner }}
+          repoName: ${{ parameters.repoName }}
+          branch: ${{ parameters.branch }}
+          owner: ${{ parameters.owner }}
+          # Network Observability
+          enable_netobserv: ${{ parameters.enable_netobserv }}
+          netobserv_sampling: ${{ parameters.netobserv_sampling }}
+          enable_dns_tracking: ${{ parameters.enable_dns_tracking }}
+          enable_rtt_tracking: ${{ parameters.enable_rtt_tracking }}
+          enable_pkt_drop: ${{ parameters.enable_pkt_drop }}
+          # Logging
+          enable_loki: ${{ parameters.enable_loki }}
+          log_retention_days: ${{ parameters.log_retention_days }}
+          enable_audit_logs: ${{ parameters.enable_audit_logs }}
+          enable_infra_logs: ${{ parameters.enable_infra_logs }}
+          # Grafana
+          enable_grafana: ${{ parameters.enable_grafana }}
+          grafana_namespace: ${{ parameters.grafana_namespace }}
+
+    # ── 2. Publish GitOps repo to GitHub ───────────────────────────────────
+    - id: publish-github-gitops
+      name: Publish GitOps Repository to GitHub
+      action: publish:github
+      input:
+        sourcePath: gitops
+        description: "Network Observability & Logging GitOps for ${{ parameters.namespace }}"
+        repoUrl: github.com?owner=${{ parameters.repoOwner }}&repo=${{ parameters.repoName }}
+        defaultBranch: ${{ parameters.branch }}
+        protectDefaultBranch: false
+        repoVisibility: public
+
+    # ── 3. Wait for repo ───────────────────────────────────────────────────
+    - id: wait-for-repo
+      name: Waiting for Repository
+      action: debug:wait
+      input:
+        seconds: 3
+
+    # ── 4. Create ArgoCD resources ─────────────────────────────────────────
+    - id: create-argocd-resources
+      name: Create ArgoCD Resources
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.name }}-app-of-apps
+        argoInstance: default
+        namespace: tssc-gitops
+        repoUrl: https://github.com/${{ parameters.repoOwner }}/${{ parameters.repoName }}.git
+        path: ./app-of-apps
+
+    # ── 5. Register in catalog ─────────────────────────────────────────────
+    - id: register
+      name: Register in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-github-gitops'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: GitOps Repository
+        url: ${{ steps['publish-github-gitops'].output.remoteUrl }}
+      - title: Open in Catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}
+      - title: ArgoCD Application
+        url: https://tssc-gitops-server-tssc-gitops.apps.cluster-cnhmj.dynamic.redhatworkshops.io/applications/${{ parameters.name }}-app-of-apps
+        icon: cloud

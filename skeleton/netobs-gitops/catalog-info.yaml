@@ -1,0 +1,22 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: ${{ values.description }}
+  annotations:
+    github.com/project-slug: ${{ values.repoOwner }}/${{ values.repoName }}
+    argocd/app-name: ${{ values.name }}-app-of-apps
+    backstage.io/techdocs-ref: dir:.
+    acs/deployment-name: "${{ values.name }}"
+    redhat.com/network-observability: "${{ values.enable_netobserv }}"
+  tags:
+    - network-observability
+    - loki
+    - grafana
+    - golden-path
+    - "${{ values.team_label }}"
+spec:
+  type: service
+  lifecycle: production
+  owner: ${{ values.owner }}
+  system: operations

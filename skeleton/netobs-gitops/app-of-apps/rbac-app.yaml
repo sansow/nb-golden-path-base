@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.name }}-rbac
+  namespace: tssc-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/${{ values.repoOwner }}/${{ values.repoName }}.git
+    targetRevision: ${{ values.branch }}
+    path: ./manifests/rbac
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,127 @@
+{% if values.enable_grafana %}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: ${{ values.name }}-netobs-dashboard
+  namespace: ${{ values.grafana_namespace }}
+  labels:
+    app: ${{ values.name }}
+    team: ${{ values.team_label }}
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  json: |
+    {
+      "title": "${{ values.team_label | upper }} - Network & Logging Dashboard",
+      "uid": "${{ values.name }}-netobs",
+      "tags": ["network-observability", "loki", "${{ values.team_label }}"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "type": "constant",
+            "label": "Namespace",
+            "query": "${{ values.namespace }}",
+            "current": { "value": "${{ values.namespace }}" }
+          }
+        ]
+      },
+      "panels": [
+        {% if "network-flows" in values.dashboard_variants %}
+        {
+          "type": "timeseries",
+          "title": "Network Flow Rate — ${{ values.namespace }}",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [{
+            "expr": "sum(rate({app=\"netobserv\", SrcK8S_Namespace=\"${{ values.namespace }}\"}[2m])) by (DstK8S_Namespace)",
+            "legendFormat": "To: {{DstK8S_Namespace}}"
+          }]
+        },
+        {% endif %}
+        {% if "top-talkers" in values.dashboard_variants %}
+        {
+          "type": "bargauge",
+          "title": "Top Talkers — Bytes Out",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [{
+            "expr": "topk(10, sum by (SrcK8S_OwnerName) (rate({SrcK8S_Namespace=\"${{ values.namespace }}\"}[5m])))",
+            "legendFormat": "{{SrcK8S_OwnerName}}"
+          }]
+        },
+        {% endif %}
+        {% if "dns-latency" in values.dashboard_variants %}
+        {
+          "type": "timeseries",
+          "title": "DNS Latency (ms)",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "histogram_quantile(0.99, sum(rate(netobserv_dns_latency_seconds_bucket{namespace=\"${{ values.namespace }}\"}[5m])) by (le)) * 1000",
+            "legendFormat": "p99 DNS Latency"
+          }]
+        },
+        {% endif %}
+        {% if "packet-drops" in values.dashboard_variants %}
+        {
+          "type": "timeseries",
+          "title": "Packet Drops",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(netobserv_pkt_drop_total{namespace=\"${{ values.namespace }}\"}[5m])) by (reason)",
+            "legendFormat": "{{reason}}"
+          }]
+        },
+        {% endif %}
+        {% if "log-volume" in values.dashboard_variants %}
+        {
+          "type": "timeseries",
+          "title": "Log Volume — ${{ values.namespace }}",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [{
+            "expr": "sum(count_over_time({kubernetes_namespace_name=\"${{ values.namespace }}\"}[1m])) by (kubernetes_pod_name)",
+            "legendFormat": "{{kubernetes_pod_name}}"
+          }]
+        },
+        {% endif %}
+        {% if "error-rate" in values.dashboard_variants %}
+        {
+          "type": "timeseries",
+          "title": "Error Rate — ${{ values.namespace }}",
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [{
+            "expr": "sum(count_over_time({kubernetes_namespace_name=\"${{ values.namespace }}\", level=\"error\"}[1m]))",
+            "legendFormat": "Errors/min"
+          }]
+        },
+        {% endif %}
+        {% if "pod-logs" in values.dashboard_variants %}
+        {
+          "type": "logs",
+          "title": "Live Pod Logs — ${{ values.namespace }}",
+          "gridPos": { "x": 0, "y": 24, "w": 24, "h": 10 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [{
+            "expr": "{kubernetes_namespace_name=\"${{ values.namespace }}\"}",
+            "legendFormat": ""
+          }],
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending"
+          }
+        }
+        {% endif %}
+      ]
+    }
+{% endif %}

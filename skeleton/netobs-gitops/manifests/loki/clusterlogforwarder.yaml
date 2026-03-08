@@ -1,0 +1,46 @@
+{% if values.enable_loki %}
+# ClusterLogForwarder — routes logs from ${{ values.namespace }} to Loki
+apiVersion: logging.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: ${{ values.name }}-forwarder
+  namespace: openshift-logging
+spec:
+  inputs:
+    - name: ${{ values.team_label }}-app-logs
+      type: application
+      application:
+        namespaces:
+          - ${{ values.namespace }}
+    {% if values.enable_audit_logs %}
+    - name: ${{ values.team_label }}-audit-logs
+      type: audit
+    {% endif %}
+    {% if values.enable_infra_logs %}
+    - name: ${{ values.team_label }}-infra-logs
+      type: infrastructure
+    {% endif %}
+  outputs:
+    - name: loki-output
+      type: loki
+      url: https://lokistack-gateway-http.netobserv.svc:8080
+      loki:
+        tenantKey: log_type
+        labelKeys:
+          - kubernetes.namespace_name
+          - kubernetes.pod_name
+          - log_type
+      secret:
+        name: lokistack-gateway-bearer-token
+  pipelines:
+    - name: ${{ values.team_label }}-pipeline
+      inputRefs:
+        - ${{ values.team_label }}-app-logs
+        {% if values.enable_audit_logs %}- ${{ values.team_label }}-audit-logs{% endif %}
+        {% if values.enable_infra_logs %}- ${{ values.team_label }}-infra-logs{% endif %}
+      outputRefs:
+        - loki-output
+      labels:
+        team: ${{ values.team_label }}
+        namespace: ${{ values.namespace }}
+{% endif %}
