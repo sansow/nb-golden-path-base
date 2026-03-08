@@ -19,4 +19,4 @@ spec:
   type: service
   lifecycle: production
   owner: ${{ values.owner }}
-  system: operations
+  system: default
