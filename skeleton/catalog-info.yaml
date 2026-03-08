@@ -18,6 +18,8 @@ metadata:
     redhat.com/network-observability: enabled
     # ── TechDocs ──
     backstage.io/techdocs-ref: dir:.
+    # ── RHACS ──
+    acs/deployment-name: "${{ values.name }}"
   tags:
     - ${{ values.language }}
     - golden-path
