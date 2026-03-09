@@ -98,6 +98,7 @@ proxy:
       secure: true
       target: ${QUAY__URL}
     /acs:
+      secure: false
       credentials: dangerously-allow-unauthenticated
       target: ${ACS_API_URL}
       headers:
