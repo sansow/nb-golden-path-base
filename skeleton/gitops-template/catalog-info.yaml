@@ -12,7 +12,8 @@ metadata:
     argocd/app-selector: tssc/gitops=${{  values.name  }}
     backstage.io/kubernetes-id: ${{ values.name }} 
     backstage.io/techdocs-ref: dir:.
-    acs/deployment-name: ${{ values.name }} 
+    acs/deployment-name: ${{ values.name }}
+    acs.secured-by: "production"
     
   {%- if values.ciType == 'tekton' %} 
     janus-idp.io/tekton: ${{ values.name }} 
