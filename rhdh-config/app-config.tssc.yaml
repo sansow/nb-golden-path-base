@@ -100,6 +100,7 @@ proxy:
     /api/acs:
       target: ${ACS_API_URL}
       secure: false
+      changeOrigin: true
       credentials: dangerously-allow-unauthenticated
       headers:
         Authorization: Bearer ${ACS_API_KEY}
