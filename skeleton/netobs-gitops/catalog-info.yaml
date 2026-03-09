@@ -9,13 +9,13 @@ metadata:
     backstage.io/techdocs-ref: dir:.
     acs/deployment-name: ${{ values.name }}
     acs.secured-by: "production"
-    redhat.com/network-observability: "${{ values.enable_netobserv }}"
+    redhat.com/network-observability: ${{ values.enable_netobserv }}"
   tags:
     - network-observability
     - loki
     - grafana
     - golden-path
-    - "${{ values.team_label }}"
+    - ${{ values.team_label }}
 spec:
   type: service
   lifecycle: production
