@@ -20,6 +20,7 @@ metadata:
     backstage.io/techdocs-ref: dir:.
     # ── RHACS ──
     acs/deployment-name: ${{ values.name }}
+    rhdh/acs-deployment: ${{ values.name }}
     acs.secured-by: "production"
   tags:
     - ${{ values.language }}
