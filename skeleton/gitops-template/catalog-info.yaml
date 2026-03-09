@@ -14,6 +14,7 @@ metadata:
     backstage.io/techdocs-ref: dir:.
     acs/deployment-name: ${{ values.name }}
     acs.secured-by: "production"
+    rhdh/acs-deployment: ${{ values.name }}
     
   {%- if values.ciType == 'tekton' %} 
     janus-idp.io/tekton: ${{ values.name }} 
