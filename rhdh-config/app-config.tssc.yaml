@@ -115,7 +115,6 @@ techdocs:
     runIn: local
   publisher:
     type: local
-sangz@sabhaska-mac rhdh-config % cat app-config.tssc.yaml 
 app:
   baseUrl: ${BACKEND_URL}
   title: Red Hat Developer Hub
