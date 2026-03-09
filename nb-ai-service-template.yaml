@@ -1,0 +1,344 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nb-ai-service-template
+  title: NB OpenShift AI Service
+  description: >
+    Scaffold a production-ready AI/ML microservice for Neuberger Berman.
+    Includes OpenShift AI (RHOAI) InferenceService, ModelServer, Jupyter workbench,
+    FastAPI serving layer, full TSSC supply chain (Tekton Chains, RHTAS, RHTPA,
+    Enterprise Contract, ACS), ArgoCD GitOps, and Coder dev environment.
+  tags:
+    - python
+    - openshift-ai
+    - rhoai
+    - mlops
+    - tssc
+    - fastapi
+    - recommended
+  links:
+    - title: OpenShift AI Docs
+      url: https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed
+    - title: NB Golden Path Repo
+      url: https://github.com/sansow/nb-golden-path-base
+spec:
+  owner: tssc
+  type: service
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # PARAMETERS — form shown to the developer in RHDH
+  # ────────────────────────────────────────────────────────────────────────────
+  parameters:
+    - title: Service Info
+      required:
+        - name
+        - description
+        - owner
+      properties:
+        name:
+          title: Service Name
+          type: string
+          description: Unique name for this AI service (lowercase, no spaces)
+          pattern: '^[a-z0-9-]+$'
+          ui:autofocus: true
+          ui:help: 'Example: credit-risk-scorer, portfolio-optimizer, nlp-summarizer'
+        description:
+          title: Description
+          type: string
+          description: Brief description of what this AI service does
+          ui:widget: textarea
+        owner:
+          title: Owner Group
+          type: string
+          description: Backstage group that owns this service
+          default: tssc
+          ui:field: OwnerPicker
+          ui:options:
+            allowedKinds:
+              - Group
+        lifecycle:
+          title: Lifecycle
+          type: string
+          description: Maturity of this service
+          default: experimental
+          enum:
+            - experimental
+            - production
+            - deprecated
+
+    - title: OpenShift AI Configuration
+      required:
+        - modelFramework
+        - namespace
+      properties:
+        namespace:
+          title: Target Namespace
+          type: string
+          description: OpenShift namespace where the AI service will be deployed
+          default: nb-ai
+          pattern: '^[a-z0-9-]+$'
+        modelFramework:
+          title: Model Framework
+          type: string
+          description: ML framework used for the model
+          default: pytorch
+          enum:
+            - pytorch
+            - tensorflow
+            - sklearn
+            - onnx
+            - huggingface
+          enumNames:
+            - PyTorch
+            - TensorFlow
+            - Scikit-Learn
+            - ONNX
+            - HuggingFace Transformers
+        modelStorageType:
+          title: Model Storage
+          type: string
+          description: Where the model is stored
+          default: s3
+          enum:
+            - s3
+            - pvc
+            - oci
+          enumNames:
+            - S3 / ODF NooBaa
+            - PersistentVolumeClaim
+            - OCI Registry
+        enableJupyter:
+          title: Enable Jupyter Workbench
+          type: boolean
+          description: Create a Jupyter workbench for model development in OpenShift AI
+          default: true
+        enableModelMonitoring:
+          title: Enable TrustyAI Model Monitoring
+          type: boolean
+          description: Enable TrustyAI for bias detection and drift monitoring
+          default: true
+        gpuEnabled:
+          title: Enable GPU Acceleration
+          type: boolean
+          description: Request GPU resources for model inference (requires GPU nodes)
+          default: false
+        minReplicas:
+          title: Min Inference Replicas
+          type: number
+          description: Minimum number of InferenceService replicas
+          default: 1
+        maxReplicas:
+          title: Max Inference Replicas
+          type: number
+          description: Maximum number of InferenceService replicas (autoscaling)
+          default: 3
+
+    - title: Repository & Pipeline
+      required:
+        - githubOrg
+        - repoVisibility
+      properties:
+        githubOrg:
+          title: GitHub Organization
+          type: string
+          description: GitHub org where source and GitOps repos will be created
+          default: sansow
+        repoVisibility:
+          title: Repo Visibility
+          type: string
+          default: private
+          enum:
+            - private
+            - public
+          enumNames:
+            - Private
+            - Public
+        imageRegistry:
+          title: Image Registry
+          type: string
+          description: Quay registry URL for built images
+          default: quay-tssc-quay.apps.cluster-cnhmj.dynamic.redhatworkshops.io
+        enablePipelineNotifications:
+          title: Enable Pipeline Slack Notifications
+          type: boolean
+          description: Send Tekton pipeline status to Slack
+          default: false
+
+    - title: Coder Workspace
+      properties:
+        coderTemplate:
+          title: Coder Workspace Template
+          type: string
+          description: Coder workspace template to use for development
+          default: nb-python-ai
+          enum:
+            - nb-python-ai
+            - nb-python-base
+            - nb-jupyter
+        coderCpuLimit:
+          title: Workspace CPU Limit
+          type: string
+          default: "2"
+          enum:
+            - "1"
+            - "2"
+            - "4"
+        coderMemoryLimit:
+          title: Workspace Memory Limit
+          type: string
+          default: 4Gi
+          enum:
+            - 2Gi
+            - 4Gi
+            - 8Gi
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # STEPS
+  # ────────────────────────────────────────────────────────────────────────────
+  steps:
+
+    # 1. Scaffold GitOps repo (Helm chart + ArgoCD app + RHOAI manifests)
+    - id: fetch-gitops
+      name: Fetch GitOps Skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton/ai-gitops/
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          lifecycle: ${{ parameters.lifecycle }}
+          namespace: ${{ parameters.namespace }}
+          modelFramework: ${{ parameters.modelFramework }}
+          modelStorageType: ${{ parameters.modelStorageType }}
+          enableJupyter: ${{ parameters.enableJupyter }}
+          enableModelMonitoring: ${{ parameters.enableModelMonitoring }}
+          gpuEnabled: ${{ parameters.gpuEnabled }}
+          minReplicas: ${{ parameters.minReplicas }}
+          maxReplicas: ${{ parameters.maxReplicas }}
+          imageRegistry: ${{ parameters.imageRegistry }}
+          githubOrg: ${{ parameters.githubOrg }}
+
+    # 2. Publish GitOps repo to GitHub
+    - id: publish-gitops
+      name: Publish GitOps Repository
+      action: publish:github
+      input:
+        repoUrl: github.com?owner=${{ parameters.githubOrg }}&repo=${{ parameters.name }}-gitops
+        description: GitOps manifests for ${{ parameters.name }} AI service
+        repoVisibility: ${{ parameters.repoVisibility }}
+        defaultBranch: main
+        gitCommitMessage: "feat: initial scaffold from NB AI Golden Path template"
+
+    # 3. Create ArgoCD Application
+    - id: create-argocd-resources
+      name: Create ArgoCD Application
+      action: argocd:create-resources
+      input:
+        appName: ${{ parameters.name }}-app
+        argoInstance: default
+        namespace: openshift-gitops
+        repoUrl: https://github.com/${{ parameters.githubOrg }}/${{ parameters.name }}-gitops
+        path: helm/
+        destinationNamespace: ${{ parameters.namespace }}
+
+    # 4. Wait for ArgoCD sync
+    - id: wait-for-argocd-sync
+      name: Wait for ArgoCD Sync
+      action: argocd:wait-for-sync
+      input:
+        appName: ${{ parameters.name }}-app
+        argoInstance: default
+
+    # 5. Scaffold source repo (FastAPI serving layer + model code + Tekton pipelines)
+    - id: fetch-source
+      name: Fetch Source Skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton/ai-source/
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          lifecycle: ${{ parameters.lifecycle }}
+          namespace: ${{ parameters.namespace }}
+          modelFramework: ${{ parameters.modelFramework }}
+          modelStorageType: ${{ parameters.modelStorageType }}
+          enableJupyter: ${{ parameters.enableJupyter }}
+          enableModelMonitoring: ${{ parameters.enableModelMonitoring }}
+          gpuEnabled: ${{ parameters.gpuEnabled }}
+          imageRegistry: ${{ parameters.imageRegistry }}
+          githubOrg: ${{ parameters.githubOrg }}
+          coderTemplate: ${{ parameters.coderTemplate }}
+          coderCpuLimit: ${{ parameters.coderCpuLimit }}
+          coderMemoryLimit: ${{ parameters.coderMemoryLimit }}
+
+    # 6. Publish source repo to GitHub
+    - id: publish-source
+      name: Publish Source Repository
+      action: publish:github
+      input:
+        repoUrl: github.com?owner=${{ parameters.githubOrg }}&repo=${{ parameters.name }}
+        description: AI service source — ${{ parameters.description }}
+        repoVisibility: ${{ parameters.repoVisibility }}
+        defaultBranch: main
+        gitCommitMessage: "feat: initial scaffold from NB AI Golden Path template"
+
+    # 7. Register both repos in RHDH catalog
+    - id: register-gitops
+      name: Register GitOps in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-gitops'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+    - id: register-source
+      name: Register Source in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-source'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # OUTPUT — links shown to developer after scaffolding
+  # ────────────────────────────────────────────────────────────────────────────
+  output:
+    links:
+      - title: Source Repository
+        url: ${{ steps['publish-source'].output.remoteUrl }}
+        icon: github
+      - title: GitOps Repository
+        url: ${{ steps['publish-gitops'].output.remoteUrl }}
+        icon: github
+      - title: Open in Catalog
+        url: ${{ steps['register-source'].output.entityRef }}
+        icon: catalog
+      - title: Open in Coder
+        url: https://coder-coder.apps.cluster-cnhmj.dynamic.redhatworkshops.io
+        icon: dashboard
+      - title: ArgoCD Application
+        url: https://openshift-gitops-server-openshift-gitops.apps.cluster-cnhmj.dynamic.redhatworkshops.io/applications/${{ parameters.name }}-app
+        icon: docs
+      - title: OpenShift AI Dashboard
+        url: https://rhods-dashboard-redhat-ods-applications.apps.cluster-cnhmj.dynamic.redhatworkshops.io
+        icon: dashboard
+    text:
+      - title: Next Steps
+        content: |
+          ## Your AI Service is Ready! 🚀
+
+          ### What was created:
+          - **Source repo**: `${{ parameters.githubOrg }}/${{ parameters.name }}` — FastAPI serving layer + model training notebooks
+          - **GitOps repo**: `${{ parameters.githubOrg }}/${{ parameters.name }}-gitops` — Helm chart + InferenceService CR + ArgoCD app
+
+          ### OpenShift AI Resources (in namespace `${{ parameters.namespace }}`):
+          - `InferenceService/${{ parameters.name }}-predictor` — model serving endpoint
+          ${{ "- `Notebook/${{ parameters.name }}-workbench` — Jupyter development environment" if parameters.enableJupyter }}
+          ${{ "- `TrustyAIService/${{ parameters.name }}-monitor` — bias/drift monitoring" if parameters.enableModelMonitoring }}
+
+          ### Next Steps:
+          1. **Upload your model** to the S3 bucket created in `${{ parameters.namespace }}`
+          2. **Open Jupyter workbench** to train/validate the model
+          3. **Push code** — Tekton pipeline triggers automatically on git push
+          4. **Check ArgoCD** — deployment reconciles automatically
+          5. **Check ACS RHACS tab** — security scan results appear after first pipeline run
