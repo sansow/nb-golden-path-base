@@ -19,7 +19,8 @@ metadata:
     # ── TechDocs ──
     backstage.io/techdocs-ref: dir:.
     # ── RHACS ──
-    acs/deployment-name: "${{ values.name }}"
+    acs/deployment-name: ${{ values.name }}
+    acs.secured-by: "production"
   tags:
     - ${{ values.language }}
     - golden-path
