@@ -11,6 +11,7 @@ metadata:
   annotations:
     # ArgoCD apps from this template used tssc-gitops as the grouping
     acs/deployment-name: ${{  values.name  }}
+    rhdh/acs-deployment: ${{ values.name }}
     acs.secured-by: "production"
     argocd/app-selector: tssc/gitops=${{  values.name  }}
     backstage.io/kubernetes-id: ${{ values.name }} 
