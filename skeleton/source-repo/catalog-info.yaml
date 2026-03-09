@@ -10,6 +10,7 @@ metadata:
       type: admin-dashboard
   annotations:
     # ArgoCD apps from this template used tssc-gitops as the grouping
+    acs/deployment-name: ${{  values.name  }}
     argocd/app-selector: tssc/gitops=${{  values.name  }}
     backstage.io/kubernetes-id: ${{ values.name }} 
     backstage.io/techdocs-ref: dir:.  
